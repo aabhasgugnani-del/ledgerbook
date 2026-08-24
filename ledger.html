@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LedgerBook</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0b0f16; --surface: #131a26; --surface2: #1a2332; --border: #263145;
+    --accent: #3b82f6; --accent2: #60a5fa; --green: #34d399; --red: #f87171;
+    --yellow: #fbbf24; --text: #e5e9f0; --muted: #7b8794; --radius: 12px;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; font-size: 14px; }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  /* ── NAV ─────────────────────────────────────────── */
+  .nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 100; overflow-x: auto; }
+  .nav-brand { font-weight: 700; font-size: 17px; color: var(--accent2); padding: 16px 0; margin-right: 20px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+  .nav-brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .nav-tab { padding: 16px 14px; font-size: 13.5px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap; user-select: none; }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+  .nav-spacer { flex: 1; }
+  .nav-fy { color: var(--muted); font-size: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 20px; white-space: nowrap; }
+
+  .page { display: none; padding: 24px; max-width: 1280px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* ── CARD ────────────────────────────────────────── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; margin-bottom: 18px; }
+  .card-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-title .sub { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+  .stat .value { font-size: 22px; font-weight: 700; }
+  .stat .value.green { color: var(--green); } .stat .value.red { color: var(--red); }
+
+  /* ── FORM ────────────────────────────────────────── */
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group.full { grid-column: 1 / -1; }
+  label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  input, textarea, select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 9px 12px; font-size: 13.5px; outline: none; transition: border .2s; width: 100%;
+    font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+  select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 30px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%237b8794'/></svg>");
+    background-repeat: no-repeat; background-position: right 12px center; }
+  textarea { resize: vertical; min-height: 44px; }
+
+  /* ── BUTTONS ─────────────────────────────────────── */
+  .btn { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #2f6fe0; }
+  .btn-primary:disabled { background: #37415a; color: var(--muted); cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent2); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 6px 12px; font-size: 12px; }
+  .btn-danger:hover { background: rgba(248,113,113,.1); }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn-icon { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 4px 8px; font-size: 15px; border-radius: 6px; }
+  .btn-icon:hover { color: var(--red); background: rgba(248,113,113,.1); }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+  .badge-dr { background: rgba(96,165,250,.15); color: var(--accent2); }
+  .badge-cr { background: rgba(52,211,153,.15); color: var(--green); }
+  .badge-type { background: rgba(255,255,255,.06); color: var(--muted); }
+
+  /* ── TABLE ───────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,.02); }
+  td.amt, th.amt { text-align: right; }
+  tr.clickable { cursor: pointer; }
+  tr.total-row td { font-weight: 700; border-top: 2px solid var(--border); border-bottom: none; }
+
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+
+  /* ── VOUCHER ENTRY GRID ──────────────────────────── */
+  .vgrid-row { display: grid; grid-template-columns: 2.2fr 0.9fr 1.1fr 32px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .vgrid-head { display: grid; grid-template-columns: 2.2fr 0.9fr 1.1fr 32px; gap: 8px; font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 8px; letter-spacing: .4px; }
+  .vgrid-foot { display: flex; justify-content: flex-end; gap: 28px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; }
+  .vgrid-foot .fitem { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .vgrid-foot .flabel { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .balance-ok { color: var(--green); font-weight: 700; }
+  .balance-bad { color: var(--red); font-weight: 700; }
+
+  .helper-box { background: var(--surface2); border: 1px dashed var(--border); border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  .helper-box .htitle { font-size: 12px; font-weight: 700; color: var(--accent2); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .4px; }
+
+  .tabbar { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tabbar .tbtn { padding: 7px 14px; border-radius: 20px; font-size: 12.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; }
+  .tabbar .tbtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1000; align-items: center; justify-content: center; }
+  .modal-bg.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 92vw; max-height: 88vh; overflow-y: auto; }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--accent); color: var(--text); padding: 12px 18px; border-radius: 10px; font-size: 13px; z-index: 2000; opacity: 0; transform: translateY(10px); transition: all .25s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  .filters-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+  .filters-row .form-group { min-width: 150px; }
+
+  .group-tree-item { padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+  .group-tree-item.sub { margin-left: 22px; color: var(--muted); }
+  .group-tree-item .nat { float: right; font-size: 10px; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.06); }
+
+  .footer-note { text-align: center; color: var(--muted); font-size: 11.5px; padding: 20px 0 40px; }
+  ::-webkit-scrollbar { height: 8px; width: 8px; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <div class="nav-brand"><span class="dot"></span>LedgerBook</div>
+  <div class="nav-tab active" data-page="dashboard">Dashboard</div>
+  <div class="nav-tab" data-page="vouchers">Vouchers</div>
+  <div class="nav-tab" data-page="ledgers">Ledgers</div>
+  <div class="nav-tab" data-page="groups">Groups</div>
+  <div class="nav-tab" data-page="reports">Reports</div>
+  <div class="nav-tab" data-page="settings">Settings</div>
+  <div class="nav-spacer"></div>
+  <div class="nav-fy" id="navFyLabel">FY —</div>
+</div>
+
+<!-- ═══════════════ DASHBOARD ═══════════════ -->
+<div class="page active" id="page-dashboard">
+  <div class="grid-stats" id="dashStats"></div>
+  <div class="card">
+    <div class="card-title">Recent Vouchers <span class="sub" onclick="showPage('vouchers')" style="cursor:pointer;color:var(--accent2)">View all →</span></div>
+    <div class="table-wrap"><table id="dashRecentTable"></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════ VOUCHERS ═══════════════ -->
+<div class="page" id="page-vouchers">
+  <div class="card">
+    <div class="card-title">New Voucher <span class="sub" id="voucherNumberPreview"></span></div>
+
+    <div class="form-grid" style="margin-bottom:18px;">
+      <div class="form-group">
+        <label>Voucher Type</label>
+        <select id="vType" onchange="onVoucherTypeChange()"></select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="vDate">
+      </div>
+      <div class="form-group">
+        <label>Reference No. (optional)</label>
+        <input type="text" id="vRefNo" placeholder="Invoice / bill no.">
+      </div>
+    </div>
+
+    <div id="vHelperBox"></div>
+
+    <div class="vgrid-head">
+      <div>Ledger</div><div>Dr / Cr</div><div>Amount</div><div></div>
+    </div>
+    <div id="vGridRows"></div>
+    <button class="btn btn-ghost btn-sm" onclick="addGridRow()">+ Add Row</button>
+
+    <div class="vgrid-foot">
+      <div class="fitem"><span class="flabel">Total Dr</span><span class="num" id="vTotalDr">₹0.00</span></div>
+      <div class="fitem"><span class="flabel">Total Cr</span><span class="num" id="vTotalCr">₹0.00</span></div>
+      <div class="fitem"><span class="flabel">Difference</span><span class="num" id="vDiff">₹0.00</span></div>
+    </div>
+
+    <div class="form-group full" style="margin-top:16px;">
+      <label>Narration</label>
+      <textarea id="vNarration" placeholder="Optional notes about this voucher"></textarea>
+    </div>
+
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-primary" id="vSaveBtn" onclick="saveVoucher()" disabled>Save Voucher</button>
+      <button class="btn btn-ghost" onclick="resetVoucherForm()">Clear</button>
+      <button class="btn btn-ghost" id="vCancelEditBtn" style="display:none" onclick="resetVoucherForm()">Cancel Edit</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Day Book</div>
+    <div class="filters-row">
+      <div class="form-group"><label>From</label><input type="date" id="dbFrom" onchange="renderDayBook()"></div>
+      <div class="form-group"><label>To</label><input type="date" id="dbTo" onchange="renderDayBook()"></div>
+      <div class="form-group"><label>Type</label><select id="dbType" onchange="renderDayBook()"><option value="">All Types</option></select></div>
+      <div class="form-group"><label>Search</label><input type="text" id="dbSearch" placeholder="Narration / ledger" oninput="renderDayBook()"></div>
+      <button class="btn btn-ghost btn-sm" onclick="exportDayBookCSV()">Export CSV</button>
+    </div>
+    <div class="table-wrap"><table id="dayBookTable"></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════ LEDGERS ═══════════════ -->
+<div class="page" id="page-ledgers">
+  <div class="card">
+    <div class="card-title">
+      Ledgers
+      <button class="btn btn-primary btn-sm" onclick="openLedgerModal()">+ New Ledger</button>
+    </div>
+    <div class="filters-row">
+      <div class="form-group"><label>Group</label><select id="ledFilterGroup" onchange="renderLedgersTable()"><option value="">All Groups</option></select></div>
+      <div class="form-group"><label>Search</label><input type="text" id="ledFilterSearch" placeholder="Ledger name" oninput="renderLedgersTable()"></div>
+    </div>
+    <div class="table-wrap"><table id="ledgersTable"></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════ GROUPS ═══════════════ -->
+<div class="page" id="page-groups">
+  <div class="card">
+    <div class="card-title">
+      Chart of Accounts
+      <button class="btn btn-primary btn-sm" onclick="openGroupModal()">+ New Sub-Group</button>
+    </div>
+    <div id="groupTree"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ REPORTS ═══════════════ -->
+<div class="page" id="page-reports">
+  <div class="tabbar" id="reportTabs">
+    <div class="tbtn active" data-r="statement">Ledger Statement</div>
+    <div class="tbtn" data-r="trial">Trial Balance</div>
+    <div class="tbtn" data-r="pnl">Profit &amp; Loss</div>
+    <div class="tbtn" data-r="bs">Balance Sheet</div>
+    <div class="tbtn" data-r="gst">GST Summary</div>
+  </div>
+
+  <div class="card" id="r-statement">
+    <div class="filters-row">
+      <div class="form-group" style="min-width:220px"><label>Ledger</label><select id="stmtLedger" onchange="renderLedgerStatement()"></select></div>
+      <div class="form-group"><label>From</label><input type="date" id="stmtFrom" onchange="renderLedgerStatement()"></div>
+      <div class="form-group"><label>To</label><input type="date" id="stmtTo" onchange="renderLedgerStatement()"></div>
+    </div>
+    <div class="table-wrap"><table id="stmtTable"></table></div>
+  </div>
+
+  <div class="card" id="r-trial" style="display:none">
+    <div class="filters-row">
+      <div class="form-group"><label>As On Date</label><input type="date" id="trialAsOn" onchange="renderTrialBalance()"></div>
+      <button class="btn btn-ghost btn-sm" onclick="exportTrialBalanceCSV()">Export CSV</button>
+    </div>
+    <div class="table-wrap"><table id="trialTable"></table></div>
+  </div>
+
+  <div class="card" id="r-pnl" style="display:none">
+    <div class="filters-row">
+      <div class="form-group"><label>From</label><input type="date" id="pnlFrom" onchange="renderPnL()"></div>
+      <div class="form-group"><label>To</label><input type="date" id="pnlTo" onchange="renderPnL()"></div>
+    </div>
+    <div class="table-wrap"><table id="pnlTable"></table></div>
+  </div>
+
+  <div class="card" id="r-bs" style="display:none">
+    <div class="filters-row">
+      <div class="form-group"><label>As On Date</label><input type="date" id="bsAsOn" onchange="renderBalanceSheet()"></div>
+    </div>
+    <div class="table-wrap"><table id="bsTable"></table></div>
+  </div>
+
+  <div class="card" id="r-gst" style="display:none">
+    <div class="filters-row">
+      <div class="form-group"><label>From</label><input type="date" id="gstFrom" onchange="renderGSTSummary()"></div>
+      <div class="form-group"><label>To</label><input type="date" id="gstTo" onchange="renderGSTSummary()"></div>
+    </div>
+    <div class="table-wrap"><table id="gstTable"></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════ SETTINGS ═══════════════ -->
+<div class="page" id="page-settings">
+  <div class="card">
+    <div class="card-title">Company Details</div>
+    <div class="form-grid">
+      <div class="form-group full"><label>Company Name</label><input type="text" id="setCompanyName"></div>
+      <div class="form-group"><label>GSTIN</label><input type="text" id="setGstin" placeholder="e.g. 07ABCDE1234F1Z5"></div>
+      <div class="form-group"><label>State</label><select id="setState"></select></div>
+      <div class="form-group"><label>FY Start</label><input type="date" id="setFyStart"></div>
+      <div class="form-group"><label>FY End</label><input type="date" id="setFyEnd"></div>
+      <div class="form-group full"><label>Address</label><textarea id="setAddress"></textarea></div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start; margin-top:16px;">
+      <button class="btn btn-primary" onclick="saveCompanySettings()">Save Details</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Backup &amp; Restore</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">This tool stores everything locally in your browser (localStorage). Export a backup regularly — clearing browser data will erase your books.</p>
+    <div class="modal-actions" style="justify-content:flex-start;">
+      <button class="btn btn-ghost" onclick="exportBackup()">Export Backup (JSON)</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('importFile').click()">Import Backup</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBackup(event)">
+      <button class="btn btn-danger" onclick="resetAllData()">Reset All Data</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">About</div>
+    <p style="color:var(--muted);font-size:13px;">LedgerBook — a Tally-style double-entry ledger prototype. Version <b id="aboutVersion" style="color:var(--accent2)"></b>.</p>
+  </div>
+</div>
+
+<div class="modal-bg" id="ledgerModalBg">
+  <div class="modal">
+    <h3 id="ledgerModalTitle">New Ledger</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Ledger Name</label><input type="text" id="lmName"></div>
+      <div class="form-group full"><label>Under Group</label><select id="lmGroup"></select></div>
+      <div class="form-group"><label>Opening Balance</label><input type="number" id="lmOpening" value="0" step="0.01"></div>
+      <div class="form-group"><label>Balance Type</label><select id="lmOpeningType"><option value="Dr">Dr</option><option value="Cr">Cr</option></select></div>
+      <div class="form-group" id="lmTaxRateWrap" style="display:none"><label>GST Rate (%)</label>
+        <select id="lmTaxRate"><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select>
+      </div>
+      <div class="form-group" id="lmStateWrap" style="display:none"><label>State</label><select id="lmState"></select></div>
+      <div class="form-group full" id="lmGstinWrap" style="display:none"><label>GSTIN (optional)</label><input type="text" id="lmGstin"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeLedgerModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLedgerModal()">Save Ledger</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="groupModalBg">
+  <div class="modal">
+    <h3>New Sub-Group</h3>
+    <div class="form-grid">
+      <div class="form-group full"><label>Group Name</label><input type="text" id="gmName"></div>
+      <div class="form-group full"><label>Under</label><select id="gmParent"></select></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeGroupModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGroupModal()">Save Group</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="footer-note">LedgerBook · local-only prototype · not a substitute for certified accounting software</div>
+
+<script>
+/* ═══════════════════════ CONSTANTS ═══════════════════════ */
+const APP_VERSION = 'v1.0.0';
+const STORAGE_KEY = 'ledgerBookData_v1';
+
+const INDIAN_STATES = ['Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana',
+  'Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram',
+  'Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand',
+  'West Bengal','Andaman and Nicobar Islands','Chandigarh','Dadra and Nagar Haveli and Daman and Diu','Delhi',
+  'Jammu and Kashmir','Ladakh','Lakshadweep','Puducherry'];
+
+const DEFAULT_GROUPS = [
+  {id:'capital', name:'Capital Account', parent:null, nature:'liability'},
+  {id:'loans', name:'Loans (Liability)', parent:null, nature:'liability'},
+  {id:'curliab', name:'Current Liabilities', parent:null, nature:'liability'},
+  {id:'fixedassets', name:'Fixed Assets', parent:null, nature:'asset'},
+  {id:'investments', name:'Investments', parent:null, nature:'asset'},
+  {id:'curassets', name:'Current Assets', parent:null, nature:'asset'},
+  {id:'branch', name:'Branch / Divisions', parent:null, nature:'asset'},
+  {id:'miscexp', name:'Misc. Expenses (Asset)', parent:null, nature:'asset'},
+  {id:'suspense', name:'Suspense Account', parent:null, nature:'asset'},
+  {id:'sales', name:'Sales Accounts', parent:null, nature:'income'},
+  {id:'purchase', name:'Purchase Accounts', parent:null, nature:'expense'},
+  {id:'directinc', name:'Direct Incomes', parent:null, nature:'income'},
+  {id:'indirectinc', name:'Indirect Incomes', parent:null, nature:'income'},
+  {id:'directexp', name:'Direct Expenses', parent:null, nature:'expense'},
+  {id:'indirectexp', name:'Indirect Expenses', parent:null, nature:'expense'},
+  {id:'dutiestaxes', name:'Duties & Taxes', parent:'curliab'},
+  {id:'provisions', name:'Provisions', parent:'curliab'},
+  {id:'creditors', name:'Sundry Creditors', parent:'curliab'},
+  {id:'bankacc', name:'Bank Accounts', parent:'curassets'},
+  {id:'cashhand', name:'Cash-in-Hand', parent:'curassets'},
+  {id:'depositsasset', name:'Deposits (Asset)', parent:'curassets'},
+  {id:'loansadv', name:'Loans & Advances (Asset)', parent:'curassets'},
+  {id:'stockhand', name:'Stock-in-Hand', parent:'curassets'},
+  {id:'debtors', name:'Sundry Debtors', parent:'curassets'},
+  {id:'bankod', name:'Bank OD A/c', parent:'loans'},
+  {id:'securedloans', name:'Secured Loans', parent:'loans'},
+  {id:'unsecuredloans', name:'Unsecured Loans', parent:'loans'},
+];
+
+const GST_LEDGERS = [
+  {id:'outputcgst', name:'Output CGST', groupId:'dutiestaxes'},
+  {id:'outputsgst', name:'Output SGST', groupId:'dutiestaxes'},
+  {id:'outputigst', name:'Output IGST', groupId:'dutiestaxes'},
+  {id:'inputcgst', name:'Input CGST', groupId:'dutiestaxes'},
+  {id:'inputsgst', name:'Input SGST', groupId:'dutiestaxes'},
+  {id:'inputigst', name:'Input IGST', groupId:'dutiestaxes'},
+];
+
+const VOUCHER_TYPES = {
+  'Payment':     {prefix:'PAY', helper:'payment'},
+  'Receipt':     {prefix:'REC', helper:'receipt'},
+  'Contra':      {prefix:'CON', helper:'contra'},
+  'Journal':     {prefix:'JV',  helper:'none'},
+  'Sales':       {prefix:'SAL', helper:'sales'},
+  'Purchase':    {prefix:'PUR', helper:'purchase'},
+  'Credit Note': {prefix:'CRN', helper:'creditnote'},
+  'Debit Note':  {prefix:'DRN', helper:'debitnote'},
+};
+
+/* ═══════════════════════ STATE / STORAGE ═══════════════════════ */
+let db = null;
+let gridRows = [];       // current voucher entry rows: {ledgerId,type,amount}
+let editingVoucherId = null;
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function defaultFY(){
+  const now = new Date();
+  const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear()-1;
+  return { fyStart: `${y}-04-01`, fyEnd: `${y+1}-03-31` };
+}
+function uid(){ return 'id' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function round2(n){ return Math.round((n + Number.EPSILON) * 100) / 100; }
+
+function seedDB(){
+  const fy = defaultFY();
+  return {
+    company: { name: 'My Company', gstin: '', state: 'Delhi', address: '', fyStart: fy.fyStart, fyEnd: fy.fyEnd },
+    groups: JSON.parse(JSON.stringify(DEFAULT_GROUPS)),
+    ledgers: [
+      { id:'cash', name:'Cash', groupId:'cashhand', opening:0, openingType:'Dr', taxRate:0, state:'', gstin:'', system:true },
+      ...GST_LEDGERS.map(g => ({ id:g.id, name:g.name, groupId:g.groupId, opening:0, openingType:'Dr', taxRate:0, state:'', gstin:'', system:true }))
+    ],
+    vouchers: [],
+    counters: {}
+  };
+}
+
+function load(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(raw){ try { db = JSON.parse(raw); } catch(e){ db = seedDB(); } }
+  else { db = seedDB(); }
+  if(!db.counters) db.counters = {};
+}
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+
+/* ═══════════════════════ HELPERS ═══════════════════════ */
+function getLedger(id){ return db.ledgers.find(l => l.id === id); }
+function getGroup(id){ return db.groups.find(g => g.id === id); }
+function getGroupNature(groupId){
+  let g = getGroup(groupId);
+  let guard = 0;
+  while(g && !g.nature && g.parent && guard < 20){ g = getGroup(g.parent); guard++; }
+  return g ? (g.nature || 'asset') : 'asset';
+}
+function formatINR(num){
+  const neg = num < 0; num = Math.abs(num);
+  let [intPart, decPart] = num.toFixed(2).split('.');
+  let lastThree = intPart.slice(-3);
+  let other = intPart.slice(0, -3);
+  if(other !== '') lastThree = ',' + lastThree;
+  let formatted = other.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
+  return (neg ? '-' : '') + '₹' + formatted + '.' + decPart;
+}
+function drCrLabel(raw){ return raw >= 0 ? 'Dr' : 'Cr'; }
+function toast(msg){
+  const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function allVoucherEntries(){
+  const out = [];
+  db.vouchers.forEach(v => v.entries.forEach(e => out.push({ ...e, date: v.date, voucherId: v.id, voucherType: v.type, voucherNumber: v.number, narration: v.narration })));
+  return out;
+}
+function getLedgerClosing(ledgerId, asOnDate){
+  const l = getLedger(ledgerId); if(!l) return 0;
+  let bal = l.openingType === 'Dr' ? l.opening : -l.opening;
+  db.vouchers.forEach(v => {
+    if(asOnDate && v.date > asOnDate) return;
+    v.entries.forEach(e => { if(e.ledgerId === ledgerId) bal += (e.type === 'Dr' ? e.amount : -e.amount); });
+  });
+  return round2(bal);
+}
+function ledgerMovementInRange(ledgerId, from, to){
+  let dr = 0, cr = 0;
+  db.vouchers.forEach(v => {
+    if(from && v.date < from) return;
+    if(to && v.date > to) return;
+    v.entries.forEach(e => { if(e.ledgerId === ledgerId){ if(e.type==='Dr') dr += e.amount; else cr += e.amount; } });
+  });
+  return { dr: round2(dr), cr: round2(cr) };
+}
+
+/* ═══════════════════════ NAV ═══════════════════════ */
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => showPage(tab.dataset.page));
+});
+function showPage(name){
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.page === name));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
+  if(name === 'dashboard') renderDashboard();
+  if(name === 'vouchers') { renderVoucherTypeOptions(); renderDayBookFilters(); renderDayBook(); }
+  if(name === 'ledgers') { renderLedgerFilterGroups(); renderLedgersTable(); }
+  if(name === 'groups') renderGroupTree();
+  if(name === 'reports') { populateReportSelectors(); renderActiveReport(); }
+  if(name === 'settings') renderSettingsForm();
+}
+document.querySelectorAll('#reportTabs .tbtn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#reportTabs .tbtn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    ['statement','trial','pnl','bs','gst'].forEach(r => document.getElementById('r-'+r).style.display = (r===b.dataset.r ? '' : 'none'));
+    renderActiveReport();
+  });
+});
+function activeReportTab(){ return document.querySelector('#reportTabs .tbtn.active').dataset.r; }
+function renderActiveReport(){
+  const r = activeReportTab();
+  if(r==='statement') renderLedgerStatement();
+  if(r==='trial') renderTrialBalance();
+  if(r==='pnl') renderPnL();
+  if(r==='bs') renderBalanceSheet();
+  if(r==='gst') renderGSTSummary();
+}
+
+/* ═══════════════════════ DASHBOARD ═══════════════════════ */
+function renderDashboard(){
+  const cash = getLedger('cash') ? getLedgerClosing('cash') : 0;
+  const bankLedgers = db.ledgers.filter(l => l.groupId === 'bankacc');
+  const bank = bankLedgers.reduce((s,l)=> s + getLedgerClosing(l.id), 0);
+  const debtors = db.ledgers.filter(l => l.groupId === 'debtors').reduce((s,l)=> s + Math.max(getLedgerClosing(l.id),0), 0);
+  const creditors = db.ledgers.filter(l => l.groupId === 'creditors').reduce((s,l)=> s + Math.max(-getLedgerClosing(l.id),0), 0);
+  const pnl = computePnL(db.company.fyStart, todayStr());
+  const gst = computeGSTSummary(db.company.fyStart, todayStr());
+  const netGst = gst.totalOutput - gst.totalInput;
+
+  const stats = [
+    {label:'Cash Balance', value: formatINR(cash), cls: cash>=0?'green':'red'},
+    {label:'Bank Balance', value: formatINR(bank), cls: bank>=0?'green':'red'},
+    {label:'Receivables (Debtors)', value: formatINR(debtors), cls:''},
+    {label:'Payables (Creditors)', value: formatINR(creditors), cls:''},
+    {label:'Net Profit (this FY)', value: formatINR(pnl.netProfit), cls: pnl.netProfit>=0?'green':'red'},
+    {label:'GST Payable (this FY)', value: formatINR(netGst), cls: netGst>=0?'red':'green'},
+  ];
+  document.getElementById('dashStats').innerHTML = stats.map(s=>`
+    <div class="stat"><div class="label">${s.label}</div><div class="value num ${s.cls}">${s.value}</div></div>
+  `).join('');
+
+  const recent = [...db.vouchers].sort((a,b)=> (b.date+b.createdAt).localeCompare(a.date+a.createdAt)).slice(0,8);
+  const table = document.getElementById('dashRecentTable');
+  if(recent.length === 0){ table.innerHTML = `<tr><td class="empty-state">No vouchers yet. Create one in the Vouchers tab.</td></tr>`; return; }
+  table.innerHTML = `
+    <thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="amt">Amount</th></tr></thead>
+    <tbody>${recent.map(v=>{
+      const total = round2(v.entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0));
+      return `<tr class="clickable" onclick="showPage('vouchers')"><td>${v.date}</td><td>${v.number}</td><td><span class="badge badge-type">${v.type}</span></td><td>${escapeHtml(v.narration||'—')}</td><td class="amt num">${formatINR(total)}</td></tr>`;
+    }).join('')}</tbody>`;
+}
+
+/* ═══════════════════════ VOUCHERS ═══════════════════════ */
+function renderVoucherTypeOptions(){
+  const sel = document.getElementById('vType');
+  if(sel.options.length) return;
+  sel.innerHTML = Object.keys(VOUCHER_TYPES).map(t=>`<option value="${t}">${t}</option>`).join('');
+  document.getElementById('vDate').value = todayStr();
+  onVoucherTypeChange();
+}
+function ledgerOptionsHtml(filterFn, selected){
+  return db.ledgers.filter(filterFn || (()=>true)).sort((a,b)=>a.name.localeCompare(b.name))
+    .map(l=>`<option value="${l.id}" ${l.id===selected?'selected':''}>${escapeHtml(l.name)}</option>`).join('');
+}
+function allLedgerOptionsHtml(selected){
+  return db.ledgers.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(l=>`<option value="${l.id}" ${l.id===selected?'selected':''}>${escapeHtml(l.name)} (${getGroup(l.groupId)?.name||''})</option>`).join('');
+}
+
+function onVoucherTypeChange(){
+  const type = document.getElementById('vType').value;
+  const helper = VOUCHER_TYPES[type].helper;
+  const box = document.getElementById('vHelperBox');
+  const prefix = VOUCHER_TYPES[type].prefix;
+  const nextNum = (db.counters[type] || 0) + 1;
+  document.getElementById('voucherNumberPreview').textContent = editingVoucherId ? '' : `Next no: ${prefix}-${nextNum}`;
+
+  if(helper === 'payment' || helper === 'receipt'){
+    const cashBankFilter = l => l.groupId==='cashhand' || l.groupId==='bankacc';
+    const otherFilter = l => !(l.groupId==='cashhand' || l.groupId==='bankacc');
+    box.innerHTML = `
+      <div class="helper-box">
+        <div class="htitle">Quick Fill — ${helper==='payment'?'Paid From':'Received Into'}</div>
+        <div class="form-grid">
+          <div class="form-group"><label>${helper==='payment'?'Paid From (Cash/Bank)':'Received Into (Cash/Bank)'}</label>
+            <select id="hCashBank">${ledgerOptionsHtml(cashBankFilter)}</select></div>
+          <div class="form-group"><label>${helper==='payment'?'Paid To (Expense/Party)':'Received From (Income/Party)'}</label>
+            <select id="hOther">${allLedgerOptionsHtml()}</select></div>
+          <div class="form-group"><label>Amount</label><input type="number" id="hAmount" step="0.01" placeholder="0.00"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="quickFillPaymentReceipt('${helper}')">+ Add to Voucher</button>
+      </div>`;
+  } else if(helper === 'contra'){
+    box.innerHTML = `
+      <div class="helper-box">
+        <div class="htitle">Quick Fill — Transfer</div>
+        <div class="form-grid">
+          <div class="form-group"><label>From (Cash/Bank)</label><select id="hFrom">${ledgerOptionsHtml(l=>l.groupId==='cashhand'||l.groupId==='bankacc')}</select></div>
+          <div class="form-group"><label>To (Cash/Bank)</label><select id="hTo">${ledgerOptionsHtml(l=>l.groupId==='cashhand'||l.groupId==='bankacc')}</select></div>
+          <div class="form-group"><label>Amount</label><input type="number" id="hAmount" step="0.01" placeholder="0.00"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="quickFillContra()">+ Add to Voucher</button>
+      </div>`;
+  } else if(helper === 'sales' || helper === 'purchase' || helper === 'creditnote' || helper === 'debitnote'){
+    const isSalesSide = (helper==='sales' || helper==='creditnote');
+    const partyFilter = l => (isSalesSide ? l.groupId==='debtors' : l.groupId==='creditors') || l.groupId==='cashhand' || l.groupId==='bankacc';
+    const ledgerFilter = l => l.groupId === (isSalesSide ? 'sales' : 'purchase');
+    box.innerHTML = `
+      <div class="helper-box">
+        <div class="htitle">GST Quick Fill</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Party Ledger</label><select id="hParty">${ledgerOptionsHtml(partyFilter)}</select></div>
+          <div class="form-group"><label>${isSalesSide?'Sales':'Purchase'} Ledger</label><select id="hSP">${ledgerOptionsHtml(ledgerFilter)}</select></div>
+          <div class="form-group"><label>Taxable Amount</label><input type="number" id="hAmount" step="0.01" placeholder="0.00"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="quickFillGST('${helper}')">+ Generate Entries (replaces grid)</button>
+      </div>`;
+  } else {
+    box.innerHTML = '';
+  }
+}
+
+function quickFillPaymentReceipt(mode){
+  const cashBankId = document.getElementById('hCashBank').value;
+  const otherId = document.getElementById('hOther').value;
+  const amt = round2(parseFloat(document.getElementById('hAmount').value) || 0);
+  if(!cashBankId || !otherId || amt <= 0){ toast('Fill all fields with a valid amount'); return; }
+  if(mode === 'payment'){ gridRows.push({ledgerId:otherId,type:'Dr',amount:amt}); gridRows.push({ledgerId:cashBankId,type:'Cr',amount:amt}); }
+  else { gridRows.push({ledgerId:cashBankId,type:'Dr',amount:amt}); gridRows.push({ledgerId:otherId,type:'Cr',amount:amt}); }
+  renderGrid();
+}
+function quickFillContra(){
+  const fromId = document.getElementById('hFrom').value, toId = document.getElementById('hTo').value;
+  const amt = round2(parseFloat(document.getElementById('hAmount').value) || 0);
+  if(!fromId || !toId || fromId===toId || amt<=0){ toast('Pick two different accounts and a valid amount'); return; }
+  gridRows.push({ledgerId:toId,type:'Dr',amount:amt});
+  gridRows.push({ledgerId:fromId,type:'Cr',amount:amt});
+  renderGrid();
+}
+function computeGSTLines(taxRate, taxableAmount, sameState){
+  if(!taxRate) return [];
+  if(sameState){
+    const half = round2(taxableAmount * taxRate / 2 / 100);
+    return [{code:'cgst', amt: half}, {code:'sgst', amt: half}];
+  }
+  return [{code:'igst', amt: round2(taxableAmount * taxRate / 100)}];
+}
+function quickFillGST(helper){
+  const partyId = document.getElementById('hParty').value;
+  const spId = document.getElementById('hSP').value;
+  const taxable = round2(parseFloat(document.getElementById('hAmount').value) || 0);
+  if(!partyId || !spId || taxable <= 0){ toast('Fill all fields with a valid amount'); return; }
+  const party = getLedger(partyId), sp = getLedger(spId);
+  const sameState = !!(party.state && db.company.state && party.state === db.company.state);
+  const gstLines = computeGSTLines(sp.taxRate || 0, taxable, sameState);
+  const totalTax = round2(gstLines.reduce((s,g)=>s+g.amt,0));
+  gridRows = [];
+  if(helper === 'sales'){
+    gridRows.push({ledgerId:partyId, type:'Dr', amount: round2(taxable+totalTax)});
+    gridRows.push({ledgerId:spId, type:'Cr', amount: taxable});
+    gstLines.forEach(g => gridRows.push({ledgerId:'output'+g.code, type:'Cr', amount:g.amt}));
+  } else if(helper === 'purchase'){
+    gridRows.push({ledgerId:spId, type:'Dr', amount: taxable});
+    gstLines.forEach(g => gridRows.push({ledgerId:'input'+g.code, type:'Dr', amount:g.amt}));
+    gridRows.push({ledgerId:partyId, type:'Cr', amount: round2(taxable+totalTax)});
+  } else if(helper === 'creditnote'){
+    gridRows.push({ledgerId:spId, type:'Dr', amount: taxable});
+    gstLines.forEach(g => gridRows.push({ledgerId:'output'+g.code, type:'Dr', amount:g.amt}));
+    gridRows.push({ledgerId:partyId, type:'Cr', amount: round2(taxable+totalTax)});
+  } else if(helper === 'debitnote'){
+    gridRows.push({ledgerId:partyId, type:'Dr', amount: round2(taxable+totalTax)});
+    gridRows.push({ledgerId:spId, type:'Cr', amount: taxable});
+    gstLines.forEach(g => gridRows.push({ledgerId:'input'+g.code, type:'Cr', amount:g.amt}));
+  }
+  renderGrid();
+}
+
+function addGridRow(){ gridRows.push({ledgerId:'', type:'Dr', amount:0}); renderGrid(); }
+function removeGridRow(idx){ gridRows.splice(idx,1); renderGrid(); }
+function updateGridRow(idx, field, value){
+  if(field==='amount') value = parseFloat(value) || 0;
+  gridRows[idx][field] = value;
+  renderGridTotalsOnly();
+}
+function renderGrid(){
+  const wrap = document.getElementById('vGridRows');
+  if(gridRows.length === 0){ gridRows = [{ledgerId:'',type:'Dr',amount:0},{ledgerId:'',type:'Dr',amount:0}]; gridRows[1].type='Cr'; }
+  wrap.innerHTML = gridRows.map((r,idx)=>`
+    <div class="vgrid-row">
+      <select onchange="updateGridRow(${idx},'ledgerId',this.value)">
+        <option value="">Select ledger…</option>
+        ${allLedgerOptionsHtml(r.ledgerId)}
+      </select>
+      <select onchange="updateGridRow(${idx},'type',this.value)">
+        <option value="Dr" ${r.type==='Dr'?'selected':''}>Dr</option>
+        <option value="Cr" ${r.type==='Cr'?'selected':''}>Cr</option>
+      </select>
+      <input type="number" step="0.01" value="${r.amount || ''}" placeholder="0.00" oninput="updateGridRow(${idx},'amount',this.value)">
+      <button class="btn-icon" onclick="removeGridRow(${idx})" title="Remove row">✕</button>
+    </div>
+  `).join('');
+  renderGridTotalsOnly();
+}
+function renderGridTotalsOnly(){
+  const totalDr = round2(gridRows.filter(r=>r.type==='Dr').reduce((s,r)=>s+(r.amount||0),0));
+  const totalCr = round2(gridRows.filter(r=>r.type==='Cr').reduce((s,r)=>s+(r.amount||0),0));
+  const diff = round2(totalDr - totalCr);
+  document.getElementById('vTotalDr').textContent = formatINR(totalDr);
+  document.getElementById('vTotalCr').textContent = formatINR(totalCr);
+  const diffEl = document.getElementById('vDiff');
+  diffEl.textContent = formatINR(diff);
+  diffEl.className = 'num ' + (Math.abs(diff) < 0.005 ? 'balance-ok' : 'balance-bad');
+
+  const validRows = gridRows.filter(r=>r.ledgerId && r.amount > 0);
+  const balanced = Math.abs(diff) < 0.005 && totalDr > 0 && validRows.length === gridRows.length && gridRows.length >= 2;
+  document.getElementById('vSaveBtn').disabled = !balanced;
+}
+
+function saveVoucher(){
+  const type = document.getElementById('vType').value;
+  const date = document.getElementById('vDate').value;
+  const refNo = document.getElementById('vRefNo').value.trim();
+  const narration = document.getElementById('vNarration').value.trim();
+  if(!date){ toast('Pick a date'); return; }
+  const entries = gridRows.filter(r=>r.ledgerId && r.amount>0).map(r=>({ledgerId:r.ledgerId, type:r.type, amount: round2(r.amount)}));
+  const totalDr = round2(entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0));
+  const totalCr = round2(entries.filter(e=>e.type==='Cr').reduce((s,e)=>s+e.amount,0));
+  if(Math.abs(totalDr-totalCr) >= 0.005 || entries.length < 2){ toast('Voucher is not balanced'); return; }
+
+  if(editingVoucherId){
+    const v = db.vouchers.find(x=>x.id===editingVoucherId);
+    v.type = type; v.date = date; v.refNo = refNo; v.narration = narration; v.entries = entries;
+    toast(`Updated ${v.number}`);
+  } else {
+    db.counters[type] = (db.counters[type]||0) + 1;
+    const number = `${VOUCHER_TYPES[type].prefix}-${db.counters[type]}`;
+    db.vouchers.push({ id: uid(), type, number, date, refNo, narration, entries, createdAt: Date.now().toString() });
+    toast(`Saved ${number}`);
+  }
+  save();
+  resetVoucherForm();
+  renderDayBook();
+}
+function resetVoucherForm(){
+  editingVoucherId = null;
+  gridRows = [];
+  document.getElementById('vRefNo').value = '';
+  document.getElementById('vNarration').value = '';
+  document.getElementById('vDate').value = todayStr();
+  document.getElementById('vCancelEditBtn').style.display = 'none';
+  onVoucherTypeChange();
+  renderGrid();
+}
+function editVoucher(id){
+  const v = db.vouchers.find(x=>x.id===id); if(!v) return;
+  editingVoucherId = id;
+  document.getElementById('vType').value = v.type;
+  document.getElementById('vDate').value = v.date;
+  document.getElementById('vRefNo').value = v.refNo || '';
+  document.getElementById('vNarration').value = v.narration || '';
+  document.getElementById('voucherNumberPreview').textContent = `Editing ${v.number}`;
+  document.getElementById('vCancelEditBtn').style.display = '';
+  document.getElementById('vHelperBox').innerHTML = `<div class="helper-box"><div class="htitle">Editing existing voucher</div>Adjust rows directly below, then Save.</div>`;
+  gridRows = v.entries.map(e=>({...e}));
+  renderGrid();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function deleteVoucher(id){
+  const v = db.vouchers.find(x=>x.id===id); if(!v) return;
+  if(!confirm(`Delete voucher ${v.number}? This cannot be undone.`)) return;
+  db.vouchers = db.vouchers.filter(x=>x.id!==id);
+  save(); renderDayBook(); toast('Voucher deleted');
+}
+
+function renderDayBookFilters(){
+  const sel = document.getElementById('dbType');
+  if(sel.options.length > 1) return;
+  sel.innerHTML += Object.keys(VOUCHER_TYPES).map(t=>`<option value="${t}">${t}</option>`).join('');
+}
+function renderDayBook(){
+  const from = document.getElementById('dbFrom').value;
+  const to = document.getElementById('dbTo').value;
+  const type = document.getElementById('dbType').value;
+  const q = document.getElementById('dbSearch').value.toLowerCase();
+  let rows = [...db.vouchers];
+  if(from) rows = rows.filter(v=>v.date>=from);
+  if(to) rows = rows.filter(v=>v.date<=to);
+  if(type) rows = rows.filter(v=>v.type===type);
+  if(q) rows = rows.filter(v => (v.narration||'').toLowerCase().includes(q) || v.entries.some(e=>(getLedger(e.ledgerId)?.name||'').toLowerCase().includes(q)));
+  rows.sort((a,b)=> (b.date+b.createdAt).localeCompare(a.date+a.createdAt));
+
+  const table = document.getElementById('dayBookTable');
+  if(rows.length===0){ table.innerHTML = `<tr><td class="empty-state">No vouchers match these filters.</td></tr>`; return; }
+  table.innerHTML = `
+    <thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Particulars</th><th>Narration</th><th class="amt">Amount</th><th></th></tr></thead>
+    <tbody>${rows.map(v=>{
+      const total = round2(v.entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0));
+      const particulars = v.entries.map(e=> `${getLedger(e.ledgerId)?.name||'?'} (${e.type})`).join(', ');
+      return `<tr>
+        <td>${v.date}</td><td>${v.number}</td><td><span class="badge badge-type">${v.type}</span></td>
+        <td style="max-width:260px;white-space:normal">${escapeHtml(particulars)}</td>
+        <td>${escapeHtml(v.narration||'—')}</td><td class="amt num">${formatINR(total)}</td>
+        <td style="white-space:nowrap"><button class="btn-icon" style="color:var(--accent2)" onclick="editVoucher('${v.id}')" title="Edit">✎</button>
+        <button class="btn-icon" onclick="deleteVoucher('${v.id}')" title="Delete">✕</button></td>
+      </tr>`;
+    }).join('')}</tbody>`;
+}
+function exportDayBookCSV(){
+  const rows = [['Date','Voucher No','Type','Ledger','Dr/Cr','Amount','Narration']];
+  db.vouchers.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(v=>{
+    v.entries.forEach(e=> rows.push([v.date, v.number, v.type, getLedger(e.ledgerId)?.name||'', e.type, e.amount, v.narration||'']));
+  });
+  downloadCSV(rows, 'day-book.csv');
+}
+
+/* ═══════════════════════ LEDGERS ═══════════════════════ */
+function renderLedgerFilterGroups(){
+  const sel = document.getElementById('ledFilterGroup');
+  sel.innerHTML = `<option value="">All Groups</option>` + db.groups.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+}
+function renderLedgersTable(){
+  const groupFilter = document.getElementById('ledFilterGroup').value;
+  const q = document.getElementById('ledFilterSearch').value.toLowerCase();
+  let list = db.ledgers.filter(l => (!groupFilter || l.groupId===groupFilter) && (!q || l.name.toLowerCase().includes(q)));
+  list.sort((a,b)=>a.name.localeCompare(b.name));
+  const table = document.getElementById('ledgersTable');
+  if(list.length===0){ table.innerHTML = `<tr><td class="empty-state">No ledgers found.</td></tr>`; return; }
+  table.innerHTML = `
+    <thead><tr><th>Name</th><th>Group</th><th class="amt">Closing Balance</th><th></th></tr></thead>
+    <tbody>${list.map(l=>{
+      const closing = getLedgerClosing(l.id);
+      return `<tr class="clickable" onclick="openLedgerStatement('${l.id}')">
+        <td>${escapeHtml(l.name)}</td><td>${getGroup(l.groupId)?.name||''}</td>
+        <td class="amt num">${formatINR(closing)} <span class="badge ${closing>=0?'badge-dr':'badge-cr'}">${drCrLabel(closing)}</span></td>
+        <td onclick="event.stopPropagation()">
+          <button class="btn-icon" style="color:var(--accent2)" onclick="openLedgerModal('${l.id}')" title="Edit">✎</button>
+          ${l.system?'':`<button class="btn-icon" onclick="deleteLedger('${l.id}')" title="Delete">✕</button>`}
+        </td>
+      </tr>`;
+    }).join('')}</tbody>`;
+}
+function openLedgerStatement(id){
+  showPage('reports');
+  document.querySelectorAll('#reportTabs .tbtn').forEach(x=>x.classList.remove('active'));
+  document.querySelector('#reportTabs .tbtn[data-r="statement"]').classList.add('active');
+  ['statement','trial','pnl','bs','gst'].forEach(r => document.getElementById('r-'+r).style.display = (r==='statement' ? '' : 'none'));
+  populateReportSelectors();
+  document.getElementById('stmtLedger').value = id;
+  renderLedgerStatement();
+}
+function deleteLedger(id){
+  const used = db.vouchers.some(v => v.entries.some(e=>e.ledgerId===id));
+  if(used){ toast('Cannot delete — ledger has voucher entries'); return; }
+  const l = getLedger(id);
+  if(!confirm(`Delete ledger "${l.name}"?`)) return;
+  db.ledgers = db.ledgers.filter(x=>x.id!==id);
+  save(); renderLedgersTable(); toast('Ledger deleted');
+}
+
+let ledgerModalEditId = null;
+function openLedgerModal(id){
+  ledgerModalEditId = id || null;
+  const gsel = document.getElementById('lmGroup');
+  gsel.innerHTML = db.groups.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  const ssel = document.getElementById('lmState');
+  ssel.innerHTML = INDIAN_STATES.map(s=>`<option value="${s}">${s}</option>`).join('');
+
+  if(id){
+    const l = getLedger(id);
+    document.getElementById('ledgerModalTitle').textContent = 'Edit Ledger';
+    document.getElementById('lmName').value = l.name;
+    document.getElementById('lmGroup').value = l.groupId;
+    document.getElementById('lmOpening').value = l.opening;
+    document.getElementById('lmOpeningType').value = l.openingType;
+    document.getElementById('lmTaxRate').value = l.taxRate || 0;
+    document.getElementById('lmState').value = l.state || 'Delhi';
+    document.getElementById('lmGstin').value = l.gstin || '';
+  } else {
+    document.getElementById('ledgerModalTitle').textContent = 'New Ledger';
+    document.getElementById('lmName').value = '';
+    document.getElementById('lmOpening').value = 0;
+    document.getElementById('lmOpeningType').value = 'Dr';
+    document.getElementById('lmTaxRate').value = 0;
+    document.getElementById('lmState').value = db.company.state || 'Delhi';
+    document.getElementById('lmGstin').value = '';
+  }
+  toggleLedgerModalFields();
+  gsel.onchange = toggleLedgerModalFields;
+  document.getElementById('ledgerModalBg').classList.add('show');
+}
+function toggleLedgerModalFields(){
+  const groupId = document.getElementById('lmGroup').value;
+  const isTaxLedger = groupId === 'sales' || groupId === 'purchase';
+  const isPartyLedger = groupId === 'debtors' || groupId === 'creditors';
+  document.getElementById('lmTaxRateWrap').style.display = isTaxLedger ? '' : 'none';
+  document.getElementById('lmStateWrap').style.display = isPartyLedger ? '' : 'none';
+  document.getElementById('lmGstinWrap').style.display = isPartyLedger ? '' : 'none';
+}
+function closeLedgerModal(){ document.getElementById('ledgerModalBg').classList.remove('show'); }
+function saveLedgerModal(){
+  const name = document.getElementById('lmName').value.trim();
+  const groupId = document.getElementById('lmGroup').value;
+  const opening = round2(parseFloat(document.getElementById('lmOpening').value) || 0);
+  const openingType = document.getElementById('lmOpeningType').value;
+  const taxRate = parseFloat(document.getElementById('lmTaxRate').value) || 0;
+  const state = document.getElementById('lmState').value;
+  const gstin = document.getElementById('lmGstin').value.trim();
+  if(!name){ toast('Ledger name required'); return; }
+  if(ledgerModalEditId){
+    const l = getLedger(ledgerModalEditId);
+    Object.assign(l, {name, groupId, opening, openingType, taxRate, state, gstin});
+    toast('Ledger updated');
+  } else {
+    db.ledgers.push({ id: uid(), name, groupId, opening, openingType, taxRate, state, gstin, system:false });
+    toast('Ledger created');
+  }
+  save(); closeLedgerModal(); renderLedgersTable();
+}
+
+/* ═══════════════════════ GROUPS ═══════════════════════ */
+function renderGroupTree(){
+  const primaries = db.groups.filter(g=>!g.parent).sort((a,b)=>a.name.localeCompare(b.name));
+  const html = primaries.map(g=>{
+    const subs = db.groups.filter(s=>s.parent===g.id).sort((a,b)=>a.name.localeCompare(b.name));
+    return `<div class="group-tree-item"><b>${g.name}</b><span class="nat">${getGroupNature(g.id)}</span></div>` +
+      subs.map(s=>`<div class="group-tree-item sub">${s.name}</div>`).join('');
+  }).join('');
+  document.getElementById('groupTree').innerHTML = html;
+}
+function openGroupModal(){
+  document.getElementById('gmParent').innerHTML = db.groups.filter(g=>!g.parent).sort((a,b)=>a.name.localeCompare(b.name)).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  document.getElementById('gmName').value = '';
+  document.getElementById('groupModalBg').classList.add('show');
+}
+function closeGroupModal(){ document.getElementById('groupModalBg').classList.remove('show'); }
+function saveGroupModal(){
+  const name = document.getElementById('gmName').value.trim();
+  const parent = document.getElementById('gmParent').value;
+  if(!name){ toast('Group name required'); return; }
+  db.groups.push({ id: uid(), name, parent });
+  save(); closeGroupModal(); renderGroupTree(); toast('Group created');
+}
+
+/* ═══════════════════════ REPORTS ═══════════════════════ */
+function populateReportSelectors(){
+  const stmtSel = document.getElementById('stmtLedger');
+  if(!stmtSel.options.length){ stmtSel.innerHTML = allLedgerOptionsHtml(); }
+  if(!document.getElementById('stmtFrom').value) document.getElementById('stmtFrom').value = db.company.fyStart;
+  if(!document.getElementById('stmtTo').value) document.getElementById('stmtTo').value = todayStr();
+  if(!document.getElementById('trialAsOn').value) document.getElementById('trialAsOn').value = todayStr();
+  if(!document.getElementById('pnlFrom').value) document.getElementById('pnlFrom').value = db.company.fyStart;
+  if(!document.getElementById('pnlTo').value) document.getElementById('pnlTo').value = todayStr();
+  if(!document.getElementById('bsAsOn').value) document.getElementById('bsAsOn').value = todayStr();
+  if(!document.getElementById('gstFrom').value) document.getElementById('gstFrom').value = db.company.fyStart;
+  if(!document.getElementById('gstTo').value) document.getElementById('gstTo').value = todayStr();
+}
+
+function renderLedgerStatement(){
+  const ledgerId = document.getElementById('stmtLedger').value; if(!ledgerId) return;
+  const from = document.getElementById('stmtFrom').value, to = document.getElementById('stmtTo').value;
+  const l = getLedger(ledgerId);
+  let bal = l.openingType === 'Dr' ? l.opening : -l.opening;
+  db.vouchers.filter(v=>v.date < from).forEach(v => v.entries.forEach(e=>{ if(e.ledgerId===ledgerId) bal += (e.type==='Dr'?e.amount:-e.amount); }));
+  const openingAtFrom = bal;
+
+  const entries = allVoucherEntries().filter(e=>e.ledgerId===ledgerId && e.date>=from && e.date<=to).sort((a,b)=>a.date.localeCompare(b.date));
+  let running = openingAtFrom;
+  const rowsHtml = entries.map(e=>{
+    running += (e.type==='Dr' ? e.amount : -e.amount);
+    return `<tr><td>${e.date}</td><td>${e.voucherNumber}</td><td><span class="badge badge-type">${e.voucherType}</span></td><td>${escapeHtml(e.narration||'—')}</td>
+      <td class="amt num">${e.type==='Dr'?formatINR(e.amount):''}</td><td class="amt num">${e.type==='Cr'?formatINR(e.amount):''}</td>
+      <td class="amt num">${formatINR(running)} ${drCrLabel(running)}</td></tr>`;
+  }).join('');
+  document.getElementById('stmtTable').innerHTML = `
+    <thead><tr><th>Date</th><th>Voucher</th><th>Type</th><th>Narration</th><th class="amt">Debit</th><th class="amt">Credit</th><th class="amt">Balance</th></tr></thead>
+    <tbody>
+      <tr><td colspan="6"><b>Opening Balance</b></td><td class="amt num"><b>${formatINR(openingAtFrom)} ${drCrLabel(openingAtFrom)}</b></td></tr>
+      ${rowsHtml || '<tr><td colspan="7" class="empty-state">No entries in this period.</td></tr>'}
+      <tr class="total-row"><td colspan="6">Closing Balance</td><td class="amt num">${formatINR(running)} ${drCrLabel(running)}</td></tr>
+    </tbody>`;
+}
+
+function renderTrialBalance(){
+  const asOn = document.getElementById('trialAsOn').value;
+  const rows = db.ledgers.map(l => ({ l, closing: getLedgerClosing(l.id, asOn) })).filter(r=>Math.abs(r.closing) > 0.004);
+  rows.sort((a,b)=>a.l.name.localeCompare(b.l.name));
+  const totalDr = round2(rows.filter(r=>r.closing>=0).reduce((s,r)=>s+r.closing,0));
+  const totalCr = round2(rows.filter(r=>r.closing<0).reduce((s,r)=>s-r.closing,0));
+  document.getElementById('trialTable').innerHTML = `
+    <thead><tr><th>Ledger</th><th>Group</th><th class="amt">Debit</th><th class="amt">Credit</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.l.name)}</td><td>${getGroup(r.l.groupId)?.name||''}</td>
+      <td class="amt num">${r.closing>=0?formatINR(r.closing):''}</td><td class="amt num">${r.closing<0?formatINR(-r.closing):''}</td></tr>`).join('')}
+      <tr class="total-row"><td colspan="2">Total</td><td class="amt num">${formatINR(totalDr)}</td><td class="amt num">${formatINR(totalCr)}</td></tr>
+    </tbody>`;
+}
+
+function computePnL(from, to){
+  const incomeGroups = ['sales','directinc','indirectinc'];
+  const expenseGroups = ['purchase','directexp','indirectexp'];
+  const incomeLedgers = db.ledgers.filter(l => getGroupNature(l.groupId)==='income');
+  const expenseLedgers = db.ledgers.filter(l => getGroupNature(l.groupId)==='expense');
+  const incomeRows = incomeLedgers.map(l=>{ const m = ledgerMovementInRange(l.id, from, to); return {l, amount: round2(m.cr - m.dr)}; }).filter(r=>Math.abs(r.amount)>0.004);
+  const expenseRows = expenseLedgers.map(l=>{ const m = ledgerMovementInRange(l.id, from, to); return {l, amount: round2(m.dr - m.cr)}; }).filter(r=>Math.abs(r.amount)>0.004);
+  const totalIncome = round2(incomeRows.reduce((s,r)=>s+r.amount,0));
+  const totalExpense = round2(expenseRows.reduce((s,r)=>s+r.amount,0));
+  return { incomeRows, expenseRows, totalIncome, totalExpense, netProfit: round2(totalIncome-totalExpense) };
+}
+function renderPnL(){
+  const from = document.getElementById('pnlFrom').value, to = document.getElementById('pnlTo').value;
+  const r = computePnL(from, to);
+  document.getElementById('pnlTable').innerHTML = `
+    <thead><tr><th>Expenses</th><th class="amt">Amount</th><th>Income</th><th class="amt">Amount</th></tr></thead>
+    <tbody>
+      ${Array.from({length: Math.max(r.expenseRows.length, r.incomeRows.length, 1)}).map((_,i)=>`
+        <tr>
+          <td>${r.expenseRows[i]?escapeHtml(r.expenseRows[i].l.name):''}</td>
+          <td class="amt num">${r.expenseRows[i]?formatINR(r.expenseRows[i].amount):''}</td>
+          <td>${r.incomeRows[i]?escapeHtml(r.incomeRows[i].l.name):''}</td>
+          <td class="amt num">${r.incomeRows[i]?formatINR(r.incomeRows[i].amount):''}</td>
+        </tr>`).join('')}
+      ${r.netProfit>=0?`<tr class="total-row"><td>Net Profit</td><td class="amt num">${formatINR(r.netProfit)}</td><td></td><td></td></tr>`
+                       :`<tr class="total-row"><td></td><td></td><td>Net Loss</td><td class="amt num">${formatINR(-r.netProfit)}</td></tr>`}
+      <tr class="total-row"><td>Total</td><td class="amt num">${formatINR(r.totalExpense + Math.max(r.netProfit,0))}</td><td>Total</td><td class="amt num">${formatINR(r.totalIncome + Math.max(-r.netProfit,0))}</td></tr>
+    </tbody>`;
+}
+
+function renderBalanceSheet(){
+  const asOn = document.getElementById('bsAsOn').value;
+  const pnl = computePnL(db.company.fyStart, asOn);
+  const assetLedgers = db.ledgers.filter(l=>getGroupNature(l.groupId)==='asset');
+  const liabLedgers = db.ledgers.filter(l=>getGroupNature(l.groupId)==='liability');
+  const assetRows = assetLedgers.map(l=>({l, amount: getLedgerClosing(l.id, asOn)})).filter(r=>Math.abs(r.amount)>0.004);
+  const liabRows = liabLedgers.map(l=>({l, amount: -getLedgerClosing(l.id, asOn)})).filter(r=>Math.abs(r.amount)>0.004);
+  const totalAssets = round2(assetRows.reduce((s,r)=>s+r.amount,0));
+  const totalLiab = round2(liabRows.reduce((s,r)=>s+r.amount,0));
+  const capitalSide = round2(totalLiab + pnl.netProfit);
+  document.getElementById('bsTable').innerHTML = `
+    <thead><tr><th>Liabilities</th><th class="amt">Amount</th><th>Assets</th><th class="amt">Amount</th></tr></thead>
+    <tbody>
+      ${Array.from({length: Math.max(liabRows.length, assetRows.length, 1)}).map((_,i)=>`
+        <tr>
+          <td>${liabRows[i]?escapeHtml(liabRows[i].l.name):''}</td>
+          <td class="amt num">${liabRows[i]?formatINR(liabRows[i].amount):''}</td>
+          <td>${assetRows[i]?escapeHtml(assetRows[i].l.name):''}</td>
+          <td class="amt num">${assetRows[i]?formatINR(assetRows[i].amount):''}</td>
+        </tr>`).join('')}
+      <tr><td>${pnl.netProfit>=0?"Profit & Loss A/c (Net Profit)":"Profit & Loss A/c (Net Loss, deducted)"}</td><td class="amt num">${formatINR(pnl.netProfit)}</td><td></td><td></td></tr>
+      <tr class="total-row"><td>Total</td><td class="amt num">${formatINR(capitalSide)}</td><td>Total</td><td class="amt num">${formatINR(totalAssets)}</td></tr>
+    </tbody>`;
+}
+
+function computeGSTSummary(from, to){
+  const heads = [
+    {label:'CGST', out:'outputcgst', inp:'inputcgst'},
+    {label:'SGST', out:'outputsgst', inp:'inputsgst'},
+    {label:'IGST', out:'outputigst', inp:'inputigst'},
+  ];
+  const rows = heads.map(h=>{
+    const out = ledgerMovementInRange(h.out, from, to).cr;
+    const inp = ledgerMovementInRange(h.inp, from, to).dr;
+    return { label: h.label, output: round2(out), input: round2(inp), net: round2(out-inp) };
+  });
+  const totalOutput = round2(rows.reduce((s,r)=>s+r.output,0));
+  const totalInput = round2(rows.reduce((s,r)=>s+r.input,0));
+  return { rows, totalOutput, totalInput, netPayable: round2(totalOutput-totalInput) };
+}
+function renderGSTSummary(){
+  const from = document.getElementById('gstFrom').value, to = document.getElementById('gstTo').value;
+  const g = computeGSTSummary(from, to);
+  document.getElementById('gstTable').innerHTML = `
+    <thead><tr><th>Tax Head</th><th class="amt">Output Tax (Collected)</th><th class="amt">Input Tax Credit</th><th class="amt">Net Payable</th></tr></thead>
+    <tbody>${g.rows.map(r=>`<tr><td>${r.label}</td><td class="amt num">${formatINR(r.output)}</td><td class="amt num">${formatINR(r.input)}</td><td class="amt num">${formatINR(r.net)}</td></tr>`).join('')}
+      <tr class="total-row"><td>Total</td><td class="amt num">${formatINR(g.totalOutput)}</td><td class="amt num">${formatINR(g.totalInput)}</td><td class="amt num">${formatINR(g.netPayable)}</td></tr>
+    </tbody>`;
+}
+function exportTrialBalanceCSV(){
+  const asOn = document.getElementById('trialAsOn').value;
+  const rows = [['Ledger','Group','Debit','Credit']];
+  db.ledgers.forEach(l=>{ const c = getLedgerClosing(l.id, asOn); if(Math.abs(c)<0.004) return;
+    rows.push([l.name, getGroup(l.groupId)?.name||'', c>=0?c:'', c<0?-c:'']); });
+  downloadCSV(rows, 'trial-balance.csv');
+}
+
+/* ═══════════════════════ SETTINGS ═══════════════════════ */
+function renderSettingsForm(){
+  document.getElementById('setCompanyName').value = db.company.name;
+  document.getElementById('setGstin').value = db.company.gstin;
+  const ssel = document.getElementById('setState');
+  if(!ssel.options.length) ssel.innerHTML = INDIAN_STATES.map(s=>`<option value="${s}">${s}</option>`).join('');
+  ssel.value = db.company.state;
+  document.getElementById('setFyStart').value = db.company.fyStart;
+  document.getElementById('setFyEnd').value = db.company.fyEnd;
+  document.getElementById('setAddress').value = db.company.address;
+  document.getElementById('aboutVersion').textContent = APP_VERSION;
+}
+function saveCompanySettings(){
+  db.company.name = document.getElementById('setCompanyName').value.trim() || 'My Company';
+  db.company.gstin = document.getElementById('setGstin').value.trim();
+  db.company.state = document.getElementById('setState').value;
+  db.company.fyStart = document.getElementById('setFyStart').value;
+  db.company.fyEnd = document.getElementById('setFyEnd').value;
+  db.company.address = document.getElementById('setAddress').value.trim();
+  save(); updateNavFyLabel(); toast('Company details saved');
+}
+function updateNavFyLabel(){
+  document.getElementById('navFyLabel').textContent = `${db.company.name} · FY ${db.company.fyStart?.slice(0,4)}-${db.company.fyEnd?.slice(2,4)}`;
+}
+function exportBackup(){
+  const blob = new Blob([JSON.stringify(db, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ledgerbook-backup-${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Backup exported');
+}
+function importBackup(evt){
+  const file = evt.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed.ledgers || !parsed.groups || !parsed.vouchers) throw new Error('bad shape');
+      if(!confirm('This will replace all current data with the imported backup. Continue?')) return;
+      db = parsed; if(!db.counters) db.counters = {};
+      save(); toast('Backup imported'); showPage('dashboard');
+    } catch(e){ toast('Invalid backup file'); }
+  };
+  reader.readAsText(file);
+  evt.target.value = '';
+}
+function resetAllData(){
+  if(!confirm('This will permanently erase all ledgers, groups and vouchers. Export a backup first if unsure. Continue?')) return;
+  db = seedDB(); save(); toast('All data reset'); showPage('dashboard'); updateNavFyLabel();
+}
+
+/* ═══════════════════════ UTIL ═══════════════════════ */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function downloadCSV(rows, filename){
+  const csv = rows.map(r => r.map(cell => {
+    const s = String(cell ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ═══════════════════════ INIT ═══════════════════════ */
+function init(){
+  load();
+  updateNavFyLabel();
+  renderVoucherTypeOptions();
+  renderGrid();
+  renderDashboard();
+}
+init();
+</script>
+</body>
+</html>
