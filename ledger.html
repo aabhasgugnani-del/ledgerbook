@@ -438,7 +438,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.3.0';
+const APP_VERSION = 'v1.3.1';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -1147,7 +1147,7 @@ function buildImportReview(){
   document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
   document.getElementById('impReviewCard').style.display = '';
   const bulkLedgerSel = document.getElementById('bulkLedger');
-  bulkLedgerSel.innerHTML = '<option value="">— unchanged —</option>' + allLedgerOptionsHtml();
+  bulkLedgerSel.innerHTML = '<option value="">— unchanged —</option>' + ledgerOptionsHtml(l => l.id !== bankLedgerId);
   renderImportReviewTable();
 }
 
@@ -1221,13 +1221,13 @@ function createImportedVouchers(){
     let entries = [];
     const type = tx.voucherType;
     if(type === 'Payment'){
-      if(!tx.ledgerId){ failed++; return; }
+      if(!tx.ledgerId || tx.ledgerId === bankLedgerId){ failed++; return; }
       entries = [{ledgerId: tx.ledgerId, type:'Dr', amount: tx.amount}, {ledgerId: bankLedgerId, type:'Cr', amount: tx.amount}];
     } else if(type === 'Receipt'){
-      if(!tx.ledgerId){ failed++; return; }
+      if(!tx.ledgerId || tx.ledgerId === bankLedgerId){ failed++; return; }
       entries = [{ledgerId: bankLedgerId, type:'Dr', amount: tx.amount}, {ledgerId: tx.ledgerId, type:'Cr', amount: tx.amount}];
     } else if(type === 'Sales' || type === 'Purchase'){
-      if(!tx.spLedgerId){ failed++; return; }
+      if(!tx.spLedgerId || tx.spLedgerId === bankLedgerId){ failed++; return; }
       const spLedger = getLedger(tx.spLedgerId);
       const taxRate = spLedger.taxRate || 0;
       const taxable = taxRate ? round2(tx.amount / (1 + taxRate/100)) : tx.amount;
