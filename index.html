@@ -280,7 +280,10 @@
   <div class="card">
     <div class="card-title">
       Ledgers
-      <button class="btn btn-primary btn-sm" onclick="openLedgerModal()">+ New Ledger</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="openLedgerModal()">+ New Ledger</button>
+        <button class="btn btn-ghost btn-sm" onclick="openBulkLedgerModal()">+ Bulk Add</button>
+      </div>
     </div>
     <div class="filters-row">
       <div class="form-group"><label>Group</label><select id="ledFilterGroup" onchange="renderLedgersTable()"><option value="">All Groups</option></select></div>
@@ -415,6 +418,18 @@
   </div>
 </div>
 
+<div class="modal-bg" id="bulkLedgerModalBg">
+  <div class="modal" style="width:640px">
+    <h3>Bulk Add Ledgers</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px;">One ledger per line: <code>Ledger Name | Group Name</code> (group must match an existing group name exactly, e.g. "Indirect Expenses"). Opening balance defaults to ₹0 Dr — edit individual ledgers afterward if needed.</p>
+    <textarea id="bulkLedgerText" style="min-height:240px;font-family:ui-monospace,monospace;font-size:12.5px;" placeholder="Office Rent | Indirect Expenses&#10;Client Income | Direct Incomes"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeBulkLedgerModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitBulkLedgers()">Create Ledgers</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="groupModalBg">
   <div class="modal">
     <h3>New Sub-Group</h3>
@@ -438,7 +453,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.3.1';
+const APP_VERSION = 'v1.4.0';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -1368,6 +1383,38 @@ function saveLedgerModal(){
     toast('Ledger created');
   }
   save(); closeLedgerModal(); renderLedgersTable();
+}
+
+function openBulkLedgerModal(){
+  document.getElementById('bulkLedgerModalBg').classList.add('show');
+}
+function closeBulkLedgerModal(){
+  document.getElementById('bulkLedgerModalBg').classList.remove('show');
+}
+function findGroupByName(name){
+  const n = name.trim().toLowerCase();
+  return db.groups.find(g => g.name.trim().toLowerCase() === n);
+}
+function submitBulkLedgers(){
+  const lines = document.getElementById('bulkLedgerText').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(lines.length === 0){ toast('Nothing to create'); return; }
+  let created = 0;
+  const errors = [];
+  lines.forEach(line => {
+    const parts = line.split('|').map(p=>p.trim());
+    const name = parts[0], groupName = parts[1];
+    if(!name || !groupName){ errors.push(`"${line}" — expected "Name | Group"`); return; }
+    const group = findGroupByName(groupName);
+    if(!group){ errors.push(`"${name}" — no group named "${groupName}"`); return; }
+    if(db.ledgers.some(l => l.name.toLowerCase() === name.toLowerCase())){ errors.push(`"${name}" already exists, skipped`); return; }
+    db.ledgers.push({ id: uid(), name, groupId: group.id, opening:0, openingType:'Dr', taxRate:0, state:'', gstin:'', system:false });
+    created++;
+  });
+  if(created > 0) save();
+  toast(`Created ${created} ledger${created!==1?'s':''}${errors.length?`, ${errors.length} issue(s)`:''}`);
+  if(errors.length) alert('Some lines were skipped:\n\n' + errors.join('\n'));
+  closeBulkLedgerModal();
+  renderLedgersTable();
 }
 
 /* ═══════════════════════ GROUPS ═══════════════════════ */
