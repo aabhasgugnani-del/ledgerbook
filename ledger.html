@@ -148,6 +148,7 @@
   <div class="nav-brand"><span class="dot"></span>LedgerBook</div>
   <div class="nav-tab active" data-page="dashboard">Dashboard</div>
   <div class="nav-tab" data-page="vouchers">Vouchers</div>
+  <div class="nav-tab" data-page="import">Import</div>
   <div class="nav-tab" data-page="ledgers">Ledgers</div>
   <div class="nav-tab" data-page="groups">Groups</div>
   <div class="nav-tab" data-page="reports">Reports</div>
@@ -222,6 +223,55 @@
       <button class="btn btn-ghost btn-sm" onclick="exportDayBookCSV()">Export CSV</button>
     </div>
     <div class="table-wrap"><table id="dayBookTable"></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════ IMPORT ═══════════════ -->
+<div class="page" id="page-import">
+  <div class="card">
+    <div class="card-title">Import Bank Statement</div>
+    <div class="form-grid">
+      <div class="form-group"><label>Bank / Cash Ledger</label><select id="impBankLedger"></select></div>
+      <div class="form-group"><label>Statement File (.xlsx / .xls)</label><input type="file" id="impFile" accept=".xlsx,.xls" onchange="onImportFileChange(event)"></div>
+    </div>
+  </div>
+
+  <div class="card" id="impMappingCard" style="display:none">
+    <div class="card-title">Map Columns <span class="sub" id="impDetectedNote"></span></div>
+    <div class="form-grid">
+      <div class="form-group"><label>Header Row #</label><input type="number" id="impHeaderRow" min="1" value="1" onchange="onImportHeaderRowChange()"></div>
+      <div class="form-group"><label>Date Format</label>
+        <select id="impDateFormat">
+          <option value="DMY">DD/MM/YYYY</option>
+          <option value="MDY">MM/DD/YYYY</option>
+          <option value="YMD">YYYY-MM-DD</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Date Column</label><select id="impColDate"></select></div>
+      <div class="form-group"><label>Narration Column</label><select id="impColNarr"></select></div>
+      <div class="form-group"><label>Debit / Withdrawal Column</label><select id="impColDebit"></select></div>
+      <div class="form-group"><label>Credit / Deposit Column</label><select id="impColCredit"></select></div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px;"><table id="impPreviewTable"></table></div>
+    <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="buildImportReview()">Parse Transactions →</button>
+  </div>
+
+  <div class="card" id="impReviewCard" style="display:none">
+    <div class="card-title">Review &amp; Create Vouchers <span class="sub" id="impSummary"></span></div>
+    <div class="filters-row">
+      <button class="btn btn-ghost btn-sm" onclick="bulkSetIncludeAll(true)">Select All</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkSetIncludeAll(false)">Select None</button>
+      <div class="form-group"><label>Bulk Set Type</label>
+        <select id="bulkType"><option value="">— unchanged —</option><option>Payment</option><option>Receipt</option><option>Sales</option><option>Purchase</option></select>
+      </div>
+      <div class="form-group"><label>Bulk Set Ledger</label><select id="bulkLedger"><option value="">— unchanged —</option></select></div>
+      <button class="btn btn-ghost btn-sm" onclick="applyBulkImportEdit()">Apply to checked rows</button>
+    </div>
+    <div class="table-wrap"><table id="impReviewTable"></table></div>
+    <div class="modal-actions" style="justify-content:flex-start; margin-top:14px;">
+      <button class="btn btn-primary" onclick="createImportedVouchers()">Create Selected Vouchers</button>
+      <button class="btn btn-ghost" onclick="resetImportFlow()">Start Over</button>
+    </div>
   </div>
 </div>
 
@@ -385,9 +435,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.3.0';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -641,6 +692,7 @@ function showPage(name){
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + name));
   if(name === 'dashboard') renderDashboard();
   if(name === 'vouchers') { renderVoucherTypeOptions(); renderDayBookFilters(); renderDayBook(); }
+  if(name === 'import') renderImportBankLedgerOptions();
   if(name === 'ledgers') { renderLedgerFilterGroups(); renderLedgersTable(); }
   if(name === 'groups') renderGroupTree();
   if(name === 'reports') { populateReportSelectors(); renderActiveReport(); }
@@ -959,6 +1011,259 @@ function exportDayBookCSV(){
     v.entries.forEach(e=> rows.push([v.date, v.number, v.type, getLedger(e.ledgerId)?.name||'', e.type, e.amount, v.narration||'']));
   });
   downloadCSV(rows, 'day-book.csv');
+}
+
+/* ═══════════════════════ BANK STATEMENT IMPORT ═══════════════════════ */
+let impRawRows = [];
+let impTransactions = [];
+
+function renderImportBankLedgerOptions(){
+  document.getElementById('impBankLedger').innerHTML = ledgerOptionsHtml(l => l.groupId==='bankacc' || l.groupId==='cashhand');
+}
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+
+function parseImportDate(raw, fmt){
+  if(raw instanceof Date && !isNaN(raw)) return `${raw.getFullYear()}-${pad2(raw.getMonth()+1)}-${pad2(raw.getDate())}`;
+  const s = String(raw ?? '').trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if(m){
+    let d, mo, y;
+    if(fmt === 'MDY'){ mo = m[1]; d = m[2]; y = m[3]; } else { d = m[1]; mo = m[2]; y = m[3]; }
+    if(y.length === 2) y = (parseInt(y,10) < 70 ? '20' : '19') + y;
+    const dn = parseInt(d,10), mn = parseInt(mo,10);
+    if(mn < 1 || mn > 12 || dn < 1 || dn > 31) return null;
+    return `${y}-${pad2(mo)}-${pad2(d)}`;
+  }
+  return null;
+}
+function cellToAmount(cell){
+  if(typeof cell === 'number') return cell;
+  if(cell == null || cell === '') return 0;
+  const n = parseFloat(String(cell).replace(/[^0-9.\-]/g,''));
+  return isNaN(n) ? 0 : n;
+}
+function autoDetectHeaderRow(rows){
+  for(let i=0;i<rows.length;i++){
+    const cells = (rows[i]||[]).map(c=>String(c||'').toLowerCase().trim());
+    const hasDate = cells.some(c => c === 'date' || c === 'txn date' || c === 'transaction date');
+    const hasNarr = cells.some(c => c.includes('narration') || c.includes('description') || c.includes('particulars'));
+    const hasAmt = cells.some(c => c.includes('debit') || c.includes('withdrawal') || c.includes('credit') || c.includes('deposit') || c.includes('amount'));
+    if(hasDate && hasNarr && hasAmt) return i + 1;
+  }
+  return 1;
+}
+function guessColumn(headerRow, keywords){
+  return headerRow.findIndex(h => keywords.some(k => String(h||'').toLowerCase().includes(k)));
+}
+
+async function onImportFileChange(evt){
+  const file = evt.target.files[0]; if(!file) return;
+  if(!document.getElementById('impBankLedger').value){ toast('Pick the bank/cash ledger this statement is for first'); evt.target.value=''; return; }
+  const buf = await file.arrayBuffer();
+  let wb;
+  try { wb = XLSX.read(buf, { type:'array', cellDates:true }); }
+  catch(e){ toast('Could not read this file: ' + e.message); return; }
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  impRawRows = XLSX.utils.sheet_to_json(sheet, { header:1, raw:true, defval:'' });
+  const headerRowNum = autoDetectHeaderRow(impRawRows);
+  document.getElementById('impHeaderRow').value = headerRowNum;
+  document.getElementById('impDetectedNote').textContent = `${impRawRows.length} rows read from "${wb.SheetNames[0]}"`;
+  document.getElementById('impMappingCard').style.display = '';
+  document.getElementById('impReviewCard').style.display = 'none';
+  populateImportColumnSelectors();
+  renderImportPreview();
+}
+function onImportHeaderRowChange(){
+  populateImportColumnSelectors();
+  renderImportPreview();
+}
+function populateImportColumnSelectors(){
+  const headerRowIdx = (parseInt(document.getElementById('impHeaderRow').value)||1) - 1;
+  const headerRow = impRawRows[headerRowIdx] || [];
+  const opts = headerRow.map((h,i)=> `<option value="${i}">Col ${i+1}: ${escapeHtml(String(h||'(blank)'))}</option>`).join('');
+  ['impColDate','impColNarr','impColDebit','impColCredit'].forEach(id=>{
+    document.getElementById(id).innerHTML = '<option value="">— none —</option>' + opts;
+  });
+  const dGuess = guessColumn(headerRow, ['date']);
+  const nGuess = guessColumn(headerRow, ['narration','description','particulars']);
+  const debGuess = guessColumn(headerRow, ['debit','withdrawal']);
+  const credGuess = guessColumn(headerRow, ['credit','deposit']);
+  if(dGuess>=0) document.getElementById('impColDate').value = dGuess;
+  if(nGuess>=0) document.getElementById('impColNarr').value = nGuess;
+  if(debGuess>=0) document.getElementById('impColDebit').value = debGuess;
+  if(credGuess>=0) document.getElementById('impColCredit').value = credGuess;
+}
+function renderImportPreview(){
+  const headerRowIdx = (parseInt(document.getElementById('impHeaderRow').value)||1) - 1;
+  const headerRow = impRawRows[headerRowIdx] || [];
+  const rows = impRawRows.slice(headerRowIdx+1, headerRowIdx+7);
+  document.getElementById('impPreviewTable').innerHTML = `
+    <thead><tr>${headerRow.map((h,i)=>`<th>Col ${i+1}: ${escapeHtml(String(h||''))}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${headerRow.map((_,i)=>`<td>${escapeHtml(String(r[i] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+function isLikelyDuplicateTx(tx){
+  return db.vouchers.some(v => v.date === tx.date && (v.narration||'').trim() === tx.narration.trim() &&
+    Math.abs(round2(v.entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0)) - tx.amount) < 0.01);
+}
+function guessLedgerFromNarration(narration, bankLedgerId){
+  if(!narration) return '';
+  const lower = narration.toLowerCase();
+  const hit = db.ledgers.find(l => l.id !== bankLedgerId && l.name.trim().length >= 3 && lower.includes(l.name.trim().toLowerCase()));
+  return hit ? hit.id : '';
+}
+
+function buildImportReview(){
+  const headerRowIdx = (parseInt(document.getElementById('impHeaderRow').value)||1) - 1;
+  const dateCol = document.getElementById('impColDate').value;
+  const narrCol = document.getElementById('impColNarr').value;
+  const debCol = document.getElementById('impColDebit').value;
+  const credCol = document.getElementById('impColCredit').value;
+  const fmt = document.getElementById('impDateFormat').value;
+  const bankLedgerId = document.getElementById('impBankLedger').value;
+  if(dateCol === ''){ toast('Pick a Date column'); return; }
+  if(debCol === '' && credCol === ''){ toast('Pick at least a Debit or Credit column'); return; }
+
+  const dataRows = impRawRows.slice(headerRowIdx + 1);
+  impTransactions = [];
+  let skipped = 0;
+  dataRows.forEach(r => {
+    const dateStr = parseImportDate(r[dateCol], fmt);
+    const debit = debCol !== '' ? cellToAmount(r[debCol]) : 0;
+    const credit = credCol !== '' ? cellToAmount(r[credCol]) : 0;
+    const narration = narrCol !== '' ? String(r[narrCol] ?? '').trim() : '';
+    if(!dateStr || (debit <= 0 && credit <= 0)){ skipped++; return; }
+    const direction = debit > 0 ? 'debit' : 'credit';
+    const amount = round2(debit > 0 ? debit : credit);
+    impTransactions.push({
+      date: dateStr, narration, amount, direction, include: true,
+      voucherType: direction === 'debit' ? 'Payment' : 'Receipt',
+      ledgerId: guessLedgerFromNarration(narration, bankLedgerId), spLedgerId: '', interstate: false
+    });
+  });
+  document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
+  document.getElementById('impReviewCard').style.display = '';
+  const bulkLedgerSel = document.getElementById('bulkLedger');
+  bulkLedgerSel.innerHTML = '<option value="">— unchanged —</option>' + allLedgerOptionsHtml();
+  renderImportReviewTable();
+}
+
+function renderImportReviewTable(){
+  const bankLedgerId = document.getElementById('impBankLedger').value;
+  const typeOptionsFor = dir => dir === 'debit' ? ['Payment','Purchase'] : ['Receipt','Sales'];
+  const table = document.getElementById('impReviewTable');
+  if(impTransactions.length === 0){ table.innerHTML = `<tr><td class="empty-state">No transactions parsed.</td></tr>`; return; }
+  table.innerHTML = `
+    <thead><tr><th></th><th>Date</th><th>Narration</th><th class="amt">Amount</th><th>Dir</th><th>Voucher Type</th><th>Ledger</th><th></th></tr></thead>
+    <tbody>${impTransactions.map((tx,idx)=>{
+      const dup = isLikelyDuplicateTx(tx);
+      const isSP = tx.voucherType === 'Sales' || tx.voucherType === 'Purchase';
+      const ledgerFilter = isSP ? (l => l.groupId === (tx.voucherType==='Sales' ? 'sales' : 'purchase')) : (l => l.id !== bankLedgerId);
+      return `<tr>
+        <td><input type="checkbox" ${tx.include?'checked':''} onchange="impTransactions[${idx}].include=this.checked"></td>
+        <td style="white-space:nowrap">${tx.date}</td>
+        <td style="max-width:240px;white-space:normal" title="${escapeHtml(tx.narration)}">${escapeHtml(tx.narration.length>70?tx.narration.slice(0,70)+'…':tx.narration)}${dup?'<br><span class="badge" style="background:rgba(251,191,36,.15);color:var(--yellow)">possible duplicate</span>':''}</td>
+        <td class="amt num">${formatINR(tx.amount)}</td>
+        <td><span class="badge ${tx.direction==='debit'?'badge-cr':'badge-dr'}">${tx.direction==='debit'?'Out':'In'}</span></td>
+        <td>
+          <select onchange="impTransactions[${idx}].voucherType=this.value; impTransactions[${idx}].ledgerId=''; impTransactions[${idx}].spLedgerId=''; renderImportReviewTable();">
+            ${typeOptionsFor(tx.direction).map(t=>`<option value="${t}" ${tx.voucherType===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </td>
+        <td>
+          ${isSP ? `
+            <select onchange="impTransactions[${idx}].spLedgerId=this.value">
+              <option value="">${tx.voucherType} ledger…</option>
+              ${ledgerOptionsHtml(ledgerFilter, tx.spLedgerId)}
+            </select>
+            <label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:var(--muted);">
+              <input type="checkbox" ${tx.interstate?'checked':''} onchange="impTransactions[${idx}].interstate=this.checked"> Interstate (IGST)
+            </label>
+          ` : `
+            <select onchange="impTransactions[${idx}].ledgerId=this.value">
+              <option value="">Select ledger…</option>
+              ${ledgerOptionsHtml(ledgerFilter, tx.ledgerId)}
+            </select>
+          `}
+        </td>
+        <td><button class="btn-icon" onclick="impTransactions.splice(${idx},1); renderImportReviewTable();" title="Remove">✕</button></td>
+      </tr>`;
+    }).join('')}</tbody>`;
+}
+
+function bulkSetIncludeAll(val){
+  impTransactions.forEach(tx => tx.include = val);
+  renderImportReviewTable();
+}
+function applyBulkImportEdit(){
+  const type = document.getElementById('bulkType').value;
+  const ledgerId = document.getElementById('bulkLedger').value;
+  impTransactions.forEach(tx => {
+    if(!tx.include) return;
+    if(type) { tx.voucherType = type; tx.ledgerId = ''; tx.spLedgerId = ''; }
+    if(ledgerId){
+      if(tx.voucherType === 'Sales' || tx.voucherType === 'Purchase') tx.spLedgerId = ledgerId;
+      else tx.ledgerId = ledgerId;
+    }
+  });
+  renderImportReviewTable();
+}
+
+function createImportedVouchers(){
+  const bankLedgerId = document.getElementById('impBankLedger').value;
+  if(!bankLedgerId){ toast('Pick the bank/cash ledger this statement is for'); return; }
+  let created = 0, failed = 0;
+  impTransactions.forEach(tx => {
+    if(!tx.include) return;
+    let entries = [];
+    const type = tx.voucherType;
+    if(type === 'Payment'){
+      if(!tx.ledgerId){ failed++; return; }
+      entries = [{ledgerId: tx.ledgerId, type:'Dr', amount: tx.amount}, {ledgerId: bankLedgerId, type:'Cr', amount: tx.amount}];
+    } else if(type === 'Receipt'){
+      if(!tx.ledgerId){ failed++; return; }
+      entries = [{ledgerId: bankLedgerId, type:'Dr', amount: tx.amount}, {ledgerId: tx.ledgerId, type:'Cr', amount: tx.amount}];
+    } else if(type === 'Sales' || type === 'Purchase'){
+      if(!tx.spLedgerId){ failed++; return; }
+      const spLedger = getLedger(tx.spLedgerId);
+      const taxRate = spLedger.taxRate || 0;
+      const taxable = taxRate ? round2(tx.amount / (1 + taxRate/100)) : tx.amount;
+      const gstLines = computeGSTLines(taxRate, taxable, !tx.interstate);
+      if(type === 'Sales'){
+        entries.push({ledgerId: bankLedgerId, type:'Dr', amount: tx.amount});
+        entries.push({ledgerId: tx.spLedgerId, type:'Cr', amount: taxable});
+        gstLines.forEach(g => entries.push({ledgerId:'output'+g.code, type:'Cr', amount:g.amt}));
+        const diff = round2(tx.amount - entries.filter(e=>e.type==='Cr').reduce((s,e)=>s+e.amount,0));
+        if(Math.abs(diff) >= 0.01) entries[1].amount = round2(entries[1].amount + diff);
+      } else {
+        entries.push({ledgerId: tx.spLedgerId, type:'Dr', amount: taxable});
+        gstLines.forEach(g => entries.push({ledgerId:'input'+g.code, type:'Dr', amount:g.amt}));
+        entries.push({ledgerId: bankLedgerId, type:'Cr', amount: tx.amount});
+        const diff = round2(tx.amount - entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0));
+        if(Math.abs(diff) >= 0.01) entries[0].amount = round2(entries[0].amount + diff);
+      }
+    }
+    const totalDr = round2(entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0));
+    const totalCr = round2(entries.filter(e=>e.type==='Cr').reduce((s,e)=>s+e.amount,0));
+    if(entries.length < 2 || Math.abs(totalDr - totalCr) >= 0.01){ failed++; return; }
+    db.counters[type] = (db.counters[type]||0) + 1;
+    const number = `${VOUCHER_TYPES[type].prefix}-${db.counters[type]}`;
+    db.vouchers.push({ id: uid(), type, number, date: tx.date, refNo:'', narration: tx.narration, entries, createdAt: Date.now().toString() });
+    created++;
+  });
+  if(created > 0) save();
+  toast(`Created ${created} voucher${created!==1?'s':''}${failed?`, ${failed} row(s) skipped (missing ledger)`:''}`);
+  resetImportFlow();
+  showPage('vouchers');
+}
+function resetImportFlow(){
+  impRawRows = []; impTransactions = [];
+  document.getElementById('impFile').value = '';
+  document.getElementById('impMappingCard').style.display = 'none';
+  document.getElementById('impReviewCard').style.display = 'none';
 }
 
 /* ═══════════════════════ LEDGERS ═══════════════════════ */
