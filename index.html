@@ -453,7 +453,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.4.0';
+const APP_VERSION = 'v1.5.0';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -1130,6 +1130,35 @@ function guessLedgerFromNarration(narration, bankLedgerId){
   const hit = db.ledgers.find(l => l.id !== bankLedgerId && l.name.trim().length >= 3 && lower.includes(l.name.trim().toLowerCase()));
   return hit ? hit.id : '';
 }
+const GST_LEDGER_IDS = ['outputcgst','outputsgst','outputigst','inputcgst','inputsgst','inputigst'];
+const NARRATION_STOPWORDS = new Set(['IMPS','NEFT','RTGS','UPI','POS','ATW','TPT','ACH','ECS','CHRG','CHGS','STMT','INCL','BILL','SEND','MONEY','PRIVATE','LIMITED']);
+function tokenizeNarration(s){
+  return String(s||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').split(' ')
+    .filter(w => w.length >= 4)
+    .filter(w => !/^\d+$/.test(w))                    // pure numbers
+    .filter(w => !/X{2,}/.test(w))                     // masked account/card refs, e.g. 514834XXXXXX2242
+    .filter(w => !/^\d{1,2}[A-Z]{3}\d{2,4}$/.test(w))  // dates like 22AUG26
+    .filter(w => !NARRATION_STOPWORDS.has(w));
+}
+function suggestFromHistory(narration, bankLedgerId, direction){
+  const tokens = new Set(tokenizeNarration(narration));
+  if(tokens.size === 0) return null;
+  const wantTypes = direction === 'debit' ? ['Payment','Purchase'] : ['Receipt','Sales'];
+  let best = null, bestOverlap = 0;
+  db.vouchers.forEach(v => {
+    if(!wantTypes.includes(v.type) || !v.narration) return;
+    const vTokens = tokenizeNarration(v.narration);
+    const overlap = vTokens.filter(t => tokens.has(t)).length;
+    if(overlap >= 2 && overlap > bestOverlap){
+      const counterEntries = v.entries.filter(e => e.ledgerId !== bankLedgerId && !GST_LEDGER_IDS.includes(e.ledgerId));
+      if(counterEntries.length === 1){
+        bestOverlap = overlap;
+        best = { ledgerId: counterEntries[0].ledgerId, voucherType: v.type };
+      }
+    }
+  });
+  return best;
+}
 
 function buildImportReview(){
   const headerRowIdx = (parseInt(document.getElementById('impHeaderRow').value)||1) - 1;
@@ -1153,13 +1182,20 @@ function buildImportReview(){
     if(!dateStr || (debit <= 0 && credit <= 0)){ skipped++; return; }
     const direction = debit > 0 ? 'debit' : 'credit';
     const amount = round2(debit > 0 ? debit : credit);
+    const nameGuess = guessLedgerFromNarration(narration, bankLedgerId);
+    const histGuess = !nameGuess ? suggestFromHistory(narration, bankLedgerId, direction) : null;
+    const voucherType = histGuess ? histGuess.voucherType : (direction === 'debit' ? 'Payment' : 'Receipt');
+    const isSPGuess = voucherType === 'Sales' || voucherType === 'Purchase';
     impTransactions.push({
       date: dateStr, narration, amount, direction, include: true,
-      voucherType: direction === 'debit' ? 'Payment' : 'Receipt',
-      ledgerId: guessLedgerFromNarration(narration, bankLedgerId), spLedgerId: '', interstate: false
+      voucherType,
+      ledgerId: !isSPGuess ? (nameGuess || (histGuess ? histGuess.ledgerId : '')) : '',
+      spLedgerId: isSPGuess && histGuess ? histGuess.ledgerId : '',
+      interstate: false
     });
   });
-  document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
+  const autoAssigned = impTransactions.filter(t => t.ledgerId || t.spLedgerId).length;
+  document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found, ${autoAssigned} auto-suggested${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
   document.getElementById('impReviewCard').style.display = '';
   const bulkLedgerSel = document.getElementById('bulkLedger');
   bulkLedgerSel.innerHTML = '<option value="">— unchanged —</option>' + ledgerOptionsHtml(l => l.id !== bankLedgerId);
