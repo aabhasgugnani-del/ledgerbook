@@ -266,6 +266,7 @@
       </div>
       <div class="form-group"><label>Bulk Set Ledger</label><select id="bulkLedger"><option value="">— unchanged —</option></select></div>
       <button class="btn btn-ghost btn-sm" onclick="applyBulkImportEdit()">Apply to checked rows</button>
+      <button class="btn btn-ghost btn-sm" onclick="openKeywordMatchModal()">Match by Keyword…</button>
     </div>
     <div class="table-wrap"><table id="impReviewTable"></table></div>
     <div class="modal-actions" style="justify-content:flex-start; margin-top:14px;">
@@ -430,6 +431,18 @@
   </div>
 </div>
 
+<div class="modal-bg" id="keywordMatchModalBg">
+  <div class="modal" style="width:640px">
+    <h3>Match Rows by Keyword</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px;">One rule per line: <code>keyword | Ledger Name</code>. Every row whose narration contains the keyword (case-insensitive) gets that ledger — this doesn't need any voucher history, it's a one-time way to seed it. Still fully editable per-row afterward.</p>
+    <textarea id="keywordMatchText" style="min-height:280px;font-family:ui-monospace,monospace;font-size:12.5px;" placeholder="GODADDY | Software & Subscriptions"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeKeywordMatchModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="applyKeywordMatchRules()">Apply Rules</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="groupModalBg">
   <div class="modal">
     <h3>New Sub-Group</h3>
@@ -453,7 +466,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.6.0';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -1260,6 +1273,35 @@ function applyBulkImportEdit(){
       else tx.ledgerId = ledgerId;
     }
   });
+  renderImportReviewTable();
+}
+
+function openKeywordMatchModal(){ document.getElementById('keywordMatchModalBg').classList.add('show'); }
+function closeKeywordMatchModal(){ document.getElementById('keywordMatchModalBg').classList.remove('show'); }
+function applyKeywordMatchRules(){
+  const lines = document.getElementById('keywordMatchText').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const rules = [];
+  const errors = [];
+  lines.forEach(line => {
+    const parts = line.split('|').map(p=>p.trim());
+    const keyword = parts[0], ledgerName = parts[1];
+    if(!keyword || !ledgerName){ errors.push(`"${line}" — expected "keyword | Ledger Name"`); return; }
+    const ledger = db.ledgers.find(l => l.name.toLowerCase() === ledgerName.toLowerCase());
+    if(!ledger){ errors.push(`"${ledgerName}" — no ledger with that exact name`); return; }
+    rules.push({ keyword: keyword.toUpperCase(), ledger });
+  });
+  let matched = 0;
+  impTransactions.forEach(tx => {
+    const upper = tx.narration.toUpperCase();
+    const rule = rules.find(r => upper.includes(r.keyword));
+    if(!rule) return;
+    const isSP = tx.voucherType === 'Sales' || tx.voucherType === 'Purchase';
+    if(isSP) tx.spLedgerId = rule.ledger.id; else tx.ledgerId = rule.ledger.id;
+    matched++;
+  });
+  toast(`Matched ${matched} row(s)${errors.length ? `, ${errors.length} rule issue(s)` : ''}`);
+  if(errors.length) alert('Some rules were skipped:\n\n' + errors.join('\n'));
+  closeKeywordMatchModal();
   renderImportReviewTable();
 }
 
