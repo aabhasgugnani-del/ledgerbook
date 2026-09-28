@@ -221,6 +221,7 @@
       <div class="form-group"><label>Type</label><select id="dbType" onchange="renderDayBook()"><option value="">All Types</option></select></div>
       <div class="form-group"><label>Search</label><input type="text" id="dbSearch" placeholder="Narration / ledger" oninput="renderDayBook()"></div>
       <button class="btn btn-ghost btn-sm" onclick="exportDayBookCSV()">Export CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="openDuplicateModal()">Find Duplicates</button>
     </div>
     <div class="table-wrap"><table id="dayBookTable"></table></div>
   </div>
@@ -259,7 +260,7 @@
   <div class="card" id="impReviewCard" style="display:none">
     <div class="card-title">Review &amp; Create Vouchers <span class="sub" id="impSummary"></span></div>
     <div class="filters-row">
-      <button class="btn btn-ghost btn-sm" onclick="bulkSetIncludeAll(true)">Select All</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkSetIncludeAll(true)" title="Ticks every row except ones already in your books">Select All New</button>
       <button class="btn btn-ghost btn-sm" onclick="bulkSetIncludeAll(false)">Select None</button>
       <div class="form-group"><label>Bulk Set Type</label>
         <select id="bulkType"><option value="">— unchanged —</option><option>Payment</option><option>Receipt</option><option>Sales</option><option>Purchase</option></select>
@@ -431,6 +432,18 @@
   </div>
 </div>
 
+<div class="modal-bg" id="duplicateModalBg">
+  <div class="modal" style="width:760px">
+    <h3>Duplicate Vouchers</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px;" id="duplicateSummary"></p>
+    <div class="table-wrap" style="max-height:360px;overflow-y:auto;"><table id="duplicateTable"></table></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeDuplicateModal()">Cancel</button>
+      <button class="btn btn-danger" id="duplicateRemoveBtn" onclick="removeDuplicateVouchers()">Remove</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="keywordMatchModalBg">
   <div class="modal" style="width:640px">
     <h3>Match Rows by Keyword</h3>
@@ -466,7 +479,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ═══════════════════════ CONSTANTS ═══════════════════════ */
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v1.7.0';
 const STORAGE_KEY = 'ledgerBookData_v1';
 
 /* ═══════════════════════ FIREBASE SYNC ═══════════════════════ */
@@ -1033,6 +1046,42 @@ function renderDayBook(){
       </tr>`;
     }).join('')}</tbody>`;
 }
+let pendingDuplicates = [];
+function openDuplicateModal(){
+  pendingDuplicates = findDuplicateImportVouchers();
+  const summary = document.getElementById('duplicateSummary');
+  const table = document.getElementById('duplicateTable');
+  const btn = document.getElementById('duplicateRemoveBtn');
+  if(pendingDuplicates.length === 0){
+    summary.textContent = 'No duplicates found. Every voucher with the same date, narration and amount was created in the same import, so each one is a separate real transaction.';
+    table.innerHTML = '';
+    btn.style.display = 'none';
+  } else {
+    const net = round2(pendingDuplicates.reduce((s,v) => {
+      const inflow = v.type === 'Receipt' || v.type === 'Sales';
+      return s + (inflow ? voucherTotal(v) : -voucherTotal(v));
+    }, 0));
+    summary.textContent = `${pendingDuplicates.length} vouchers match a transaction that was already imported earlier (same date, narration and amount). Removing them changes your bank balance by ${formatINR(-net)}. The original copy of each stays.`;
+    table.innerHTML = `
+      <thead><tr><th>Date</th><th>Voucher</th><th>Narration</th><th class="amt">Amount</th></tr></thead>
+      <tbody>${pendingDuplicates.map(v => `<tr><td style="white-space:nowrap">${v.date}</td><td>${v.number}</td>
+        <td style="white-space:normal">${escapeHtml(v.narration)}</td><td class="amt num">${formatINR(voucherTotal(v))}</td></tr>`).join('')}</tbody>`;
+    btn.textContent = `Remove ${pendingDuplicates.length} Duplicates`;
+    btn.style.display = '';
+  }
+  document.getElementById('duplicateModalBg').classList.add('show');
+}
+function closeDuplicateModal(){ document.getElementById('duplicateModalBg').classList.remove('show'); }
+function removeDuplicateVouchers(){
+  const ids = new Set(pendingDuplicates.map(v => v.id));
+  db.vouchers = db.vouchers.filter(v => !ids.has(v.id));
+  save();
+  closeDuplicateModal();
+  renderDayBook();
+  toast(`Removed ${ids.size} duplicate voucher${ids.size!==1?'s':''}`);
+  pendingDuplicates = [];
+}
+
 function exportDayBookCSV(){
   const rows = [['Date','Voucher No','Type','Ledger','Dr/Cr','Amount','Narration']];
   db.vouchers.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(v=>{
@@ -1133,9 +1182,51 @@ function renderImportPreview(){
     <tbody>${rows.map(r=>`<tr>${headerRow.map((_,i)=>`<td>${escapeHtml(String(r[i] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody>`;
 }
 
-function isLikelyDuplicateTx(tx){
-  return db.vouchers.some(v => v.date === tx.date && (v.narration||'').trim() === tx.narration.trim() &&
-    Math.abs(round2(v.entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0)) - tx.amount) < 0.01);
+function voucherTotal(v){ return round2(v.entries.filter(e=>e.type==='Dr').reduce((s,e)=>s+e.amount,0)); }
+function dupKey(date, narration, amount){ return `${date}|${String(narration||'').trim()}|${round2(amount).toFixed(2)}`; }
+
+// Count-aware: a statement can legitimately contain identical rows (same date, narration, amount),
+// so a row is only a duplicate if the books already hold more matching vouchers than the earlier
+// matching rows in this same file have used up.
+function flagImportDuplicates(){
+  const existing = {};
+  db.vouchers.forEach(v => {
+    if(!v.narration) return;
+    const k = dupKey(v.date, v.narration, voucherTotal(v));
+    existing[k] = (existing[k] || 0) + 1;
+  });
+  impTransactions.forEach(tx => {
+    const k = dupKey(tx.date, tx.narration, tx.amount);
+    tx.duplicate = !!(tx.narration && existing[k] > 0);
+    if(tx.duplicate){ existing[k]--; tx.include = false; }
+  });
+}
+
+// Finds vouchers imported twice. Vouchers created in one sitting (one import) form a batch; a voucher
+// is a duplicate only if an earlier batch holds an unmatched voucher with the same date, narration and
+// amount. Identical pairs within the same batch (genuine repeat transactions) are never matched.
+function findDuplicateImportVouchers(){
+  const sorted = [...db.vouchers].sort((a,b) => (Number(a.createdAt)||0) - (Number(b.createdAt)||0));
+  const batchOf = new Map();
+  let batch = 0, prev = null;
+  sorted.forEach(v => {
+    const t = Number(v.createdAt) || 0;
+    if(prev !== null && t - prev > 60000) batch++;
+    batchOf.set(v.id, batch);
+    prev = t;
+  });
+  const pools = {};
+  const dups = [];
+  sorted.forEach(v => {
+    if(!v.narration) return;
+    const k = dupKey(v.date, v.narration, voucherTotal(v));
+    const pool = pools[k] || (pools[k] = []);
+    const b = batchOf.get(v.id);
+    const i = pool.findIndex(p => p < b);
+    if(i >= 0){ pool.splice(i, 1); dups.push(v); }
+    else pool.push(b);
+  });
+  return dups;
 }
 function guessLedgerFromNarration(narration, bankLedgerId){
   if(!narration) return '';
@@ -1207,8 +1298,10 @@ function buildImportReview(){
       interstate: false
     });
   });
+  flagImportDuplicates();
   const autoAssigned = impTransactions.filter(t => t.ledgerId || t.spLedgerId).length;
-  document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found, ${autoAssigned} auto-suggested${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
+  const dupCount = impTransactions.filter(t => t.duplicate).length;
+  document.getElementById('impSummary').textContent = `${impTransactions.length} transactions found, ${autoAssigned} auto-suggested${dupCount ? `, ${dupCount} already in your books (unticked)` : ''}${skipped ? `, ${skipped} row(s) skipped (no valid date/amount)` : ''}`;
   document.getElementById('impReviewCard').style.display = '';
   const bulkLedgerSel = document.getElementById('bulkLedger');
   bulkLedgerSel.innerHTML = '<option value="">— unchanged —</option>' + ledgerOptionsHtml(l => l.id !== bankLedgerId);
@@ -1223,13 +1316,13 @@ function renderImportReviewTable(){
   table.innerHTML = `
     <thead><tr><th></th><th>Date</th><th>Narration</th><th class="amt">Amount</th><th>Dir</th><th>Voucher Type</th><th>Ledger</th><th></th></tr></thead>
     <tbody>${impTransactions.map((tx,idx)=>{
-      const dup = isLikelyDuplicateTx(tx);
+      const dup = tx.duplicate;
       const isSP = tx.voucherType === 'Sales' || tx.voucherType === 'Purchase';
       const ledgerFilter = isSP ? (l => l.groupId === (tx.voucherType==='Sales' ? 'sales' : 'purchase')) : (l => l.id !== bankLedgerId);
       return `<tr>
         <td><input type="checkbox" ${tx.include?'checked':''} onchange="impTransactions[${idx}].include=this.checked"></td>
         <td style="white-space:nowrap">${tx.date}</td>
-        <td style="max-width:240px;white-space:normal" title="${escapeHtml(tx.narration)}">${escapeHtml(tx.narration.length>70?tx.narration.slice(0,70)+'…':tx.narration)}${dup?'<br><span class="badge" style="background:rgba(251,191,36,.15);color:var(--yellow)">possible duplicate</span>':''}</td>
+        <td style="max-width:240px;white-space:normal" title="${escapeHtml(tx.narration)}">${escapeHtml(tx.narration.length>70?tx.narration.slice(0,70)+'…':tx.narration)}${dup?'<br><span class="badge" style="background:rgba(251,191,36,.15);color:var(--yellow)">already in your books</span>':''}</td>
         <td class="amt num">${formatINR(tx.amount)}</td>
         <td><span class="badge ${tx.direction==='debit'?'badge-cr':'badge-dr'}">${tx.direction==='debit'?'Out':'In'}</span></td>
         <td>
@@ -1259,7 +1352,7 @@ function renderImportReviewTable(){
 }
 
 function bulkSetIncludeAll(val){
-  impTransactions.forEach(tx => tx.include = val);
+  impTransactions.forEach(tx => tx.include = val && !tx.duplicate);
   renderImportReviewTable();
 }
 function applyBulkImportEdit(){
